@@ -104,8 +104,23 @@ class SentienceBrowser:
         for file in files_to_copy:
             src = extension_source / file
             if src.exists():
+                # Verify source file is not empty
+                src_size = src.stat().st_size
+                if src_size == 0:
+                    raise ValueError(
+                        f"Extension file is empty: {src}\n"
+                        f"Extension source: {extension_source}\n"
+                        f"This suggests the extension files weren't synced correctly."
+                    )
                 dst = os.path.join(temp_dir, file)
                 shutil.copy2(src, dst)
+                # Verify copy succeeded
+                if not os.path.exists(dst) or os.path.getsize(dst) == 0:
+                    raise RuntimeError(
+                        f"Failed to copy {file} to temp directory\n"
+                        f"Source: {src} (size: {src_size} bytes)\n"
+                        f"Destination: {dst} (exists: {os.path.exists(dst)}, size: {os.path.getsize(dst) if os.path.exists(dst) else 0} bytes)"
+                    )
                 copied_files.append(file)
             else:
                 raise FileNotFoundError(
@@ -160,17 +175,47 @@ class SentienceBrowser:
         
         # Verify manifest.json is valid JSON
         manifest_path = os.path.join(temp_dir, "manifest.json")
+        if not os.path.exists(manifest_path):
+            raise FileNotFoundError(
+                f"manifest.json not found at {manifest_path}\n"
+                f"Temp dir: {temp_dir}\n"
+                f"Files in temp dir: {os.listdir(temp_dir)}"
+            )
+        
+        # Check file size
+        manifest_size = os.path.getsize(manifest_path)
+        if manifest_size == 0:
+            raise ValueError(
+                f"manifest.json is empty (0 bytes) at {manifest_path}\n"
+                f"Extension source: {extension_source}\n"
+                f"Source manifest exists: {(extension_source / 'manifest.json').exists()}\n"
+                f"Source manifest size: {os.path.getsize(extension_source / 'manifest.json') if (extension_source / 'manifest.json').exists() else 'N/A'}"
+            )
+        
         try:
             import json
-            with open(manifest_path, 'r') as f:
-                manifest = json.load(f)
+            with open(manifest_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                if not content.strip():
+                    raise ValueError(f"manifest.json is empty or contains only whitespace")
+                manifest = json.loads(content)
             # Verify required manifest fields
             if "manifest_version" not in manifest:
                 raise ValueError("manifest.json missing 'manifest_version' field")
         except json.JSONDecodeError as e:
-            raise ValueError(f"manifest.json is not valid JSON: {e}")
+            raise ValueError(
+                f"manifest.json is not valid JSON: {e}\n"
+                f"File path: {manifest_path}\n"
+                f"File size: {manifest_size} bytes\n"
+                f"First 100 chars: {content[:100] if 'content' in locals() else 'N/A'}"
+            )
         except Exception as e:
-            raise ValueError(f"Error reading manifest.json: {e}")
+            raise ValueError(
+                f"Error reading manifest.json: {e}\n"
+                f"File path: {manifest_path}\n"
+                f"File exists: {os.path.exists(manifest_path)}\n"
+                f"File size: {manifest_size} bytes"
+            )
         
         # Launch Playwright
         self.playwright = sync_playwright().start()
