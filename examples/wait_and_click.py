@@ -1,12 +1,16 @@
 """
-Day 5-6 Example: Wait for element and click
+Example: Wait for element and click
 """
 
 from sentience import SentienceBrowser, snapshot, find, wait_for, click, expect
+import os
 
 
 def main():
-    with SentienceBrowser(headless=False) as browser:
+    # Get API key from environment variable (optional - uses free tier if not set)
+    api_key = os.environ.get("SENTIENCE_API_KEY")
+
+    with SentienceBrowser(api_key=api_key, headless=False) as browser:
         # Navigate to example.com
         browser.page.goto("https://example.com")
         browser.page.wait_for_load_state("networkidle")
