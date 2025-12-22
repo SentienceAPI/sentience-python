@@ -71,8 +71,18 @@ jobs:
         RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
           "https://api.github.com/repos/$REPO/releases/tags/$TAG")
 
+        echo "🔍 DEBUG: Raw API response:"
+        echo "$RELEASE_INFO"
+        echo ""
         echo "Release info:"
         echo "$RELEASE_INFO" | jq -r '.name, .tag_name' || echo "Failed to parse release info"
+
+        # Check for error message
+        ERROR_MSG=$(echo "$RELEASE_INFO" | jq -r '.message // empty')
+        if [ -n "$ERROR_MSG" ]; then
+          echo "❌ API Error: $ERROR_MSG"
+          echo "This usually means the token doesn't have access to the Organization repo"
+        fi
 
         # For private repos, use the API URL with asset ID, not browser_download_url
         ASSET_INFO=$(echo "$RELEASE_INFO" | \
