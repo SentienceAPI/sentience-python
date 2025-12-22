@@ -1,6 +1,6 @@
 # Sentience Python SDK
 
-**Status**: ✅ Week 1 Complete
+**📜 License**: Apache License 2.0
 
 Python SDK for Sentience AI Agent Browser Automation.
 
