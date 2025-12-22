@@ -7,11 +7,15 @@ and convert it to high-quality markdown using markdownify.
 
 from sentience import SentienceBrowser, read
 from markdownify import markdownify
+import os
 
 
 def main():
+    # Get API key from environment variable (optional - uses free tier if not set)
+    api_key = os.environ.get("SENTIENCE_API_KEY")
+
     # Initialize browser
-    with SentienceBrowser(headless=True) as browser:
+    with SentienceBrowser(api_key=api_key, headless=True) as browser:
         # Navigate to a page
         browser.page.goto("https://example.com")
         browser.page.wait_for_load_state("networkidle")
