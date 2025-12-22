@@ -64,18 +64,27 @@ jobs:
         cd extension-temp
 
         echo "📁 Downloading extension-files.tar.gz from release..."
+        echo "🔍 DEBUG: REPO=$REPO, TAG=$TAG"
+
+        # Debug: Check if we can access the release at all
+        echo "🔍 DEBUG: Testing API access to release..."
+        RELEASE_INFO=$(curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
+          "https://api.github.com/repos/$REPO/releases/tags/$TAG")
+
+        echo "Release info:"
+        echo "$RELEASE_INFO" | jq -r '.name, .tag_name' || echo "Failed to parse release info"
 
         # For private repos, use the API URL with asset ID, not browser_download_url
-        ASSET_INFO=$(curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
-          "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
+        ASSET_INFO=$(echo "$RELEASE_INFO" | \
           jq -r '.assets[] | select(.name=="extension-files.tar.gz") | "\(.id)|\(.url)"')
 
         if [ -z "$ASSET_INFO" ] || [ "$ASSET_INFO" == "null" ]; then
           echo "❌ extension-files.tar.gz not found in release assets"
           echo "Available assets:"
-          curl -s -H "Authorization: token ${{ secrets.SENTIENCE_CHROME_TOKEN }}" \
-            "https://api.github.com/repos/$REPO/releases/tags/$TAG" | \
-            jq -r '.assets[] | "\(.name) (id: \(.id))"'
+          echo "$RELEASE_INFO" | jq -r '.assets[] | "\(.name) (id: \(.id))"'
+          echo ""
+          echo "Full release response (first 500 chars):"
+          echo "$RELEASE_INFO" | head -c 500
           exit 1
         fi
 
