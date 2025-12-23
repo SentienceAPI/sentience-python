@@ -12,4 +12,4 @@ Commercial licenses may include:
 - SLA guarantees
 - Extended trace retention and replay tooling
 
-To inquire, contact: licensing@sentienceapi.com
+To inquire, contact: support@sentienceapi.com
