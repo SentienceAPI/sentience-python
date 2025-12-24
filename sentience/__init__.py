@@ -15,9 +15,14 @@ from .generator import ScriptGenerator, generate
 from .read import read
 from .screenshot import screenshot
 
-__version__ = "0.10.6"
+# Agent Layer (Phase 1 & 2)
+from .llm_provider import LLMProvider, LLMResponse, OpenAIProvider, AnthropicProvider, LocalLLMProvider
+from .agent import SentienceAgent
+
+__version__ = "0.10.7"
 
 __all__ = [
+    # Core SDK
     "SentienceBrowser",
     "Snapshot",
     "Element",
@@ -44,5 +49,12 @@ __all__ = [
     "generate",
     "read",
     "screenshot",
+    # Agent Layer
+    "LLMProvider",
+    "LLMResponse",
+    "OpenAIProvider",
+    "AnthropicProvider",
+    "LocalLLMProvider",
+    "SentienceAgent",
 ]
 
