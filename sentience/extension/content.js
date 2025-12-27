@@ -1,6 +1,12 @@
 // content.js - ISOLATED WORLD (Bridge between Main World and Background)
 console.log('[Sentience Bridge] Loaded.');
 
+// Detect if we're in a child frame (for iframe support)
+const isChildFrame = window !== window.top;
+if (isChildFrame) {
+    console.log('[Sentience Bridge] Running in child frame:', window.location.href);
+}
+
 // 1. Pass Extension ID to Main World (So API knows where to find resources)
 document.documentElement.dataset.sentienceExtensionId = chrome.runtime.id;
 
@@ -129,4 +135,4 @@ function handleSnapshotRequest(data) {
     }
 }
 
-console.log('[Sentience Bridge] Ready - Extension ID:', chrome.runtime.id);
+// console.log('[Sentience Bridge] Ready - Extension ID:', chrome.runtime.id);
