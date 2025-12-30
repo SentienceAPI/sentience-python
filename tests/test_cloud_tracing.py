@@ -690,6 +690,11 @@ class TestRegressionTests:
             # Mock successful trace upload
             mock_put.return_value = Mock(status_code=200)
 
+            # Mock /v1/traces/complete response (this will still be called)
+            complete_response = Mock()
+            complete_response.status_code = 200
+            mock_post.return_value = complete_response
+
             # Create sink
             sink = CloudTraceSink(upload_url, run_id=run_id, api_key="sk_test_123")
             sink.emit({"v": 1, "type": "run_start", "seq": 1})
@@ -700,8 +705,11 @@ class TestRegressionTests:
             # Verify trace upload succeeded
             assert mock_put.called
 
-            # Verify index upload was not attempted (index file missing)
-            assert not mock_post.called
+            # POST is called once for /v1/traces/complete, but NOT for /v1/traces/index_upload
+            # (because index file is missing)
+            assert mock_post.call_count == 1
+            # Verify it was the complete call, not index_upload
+            assert "/v1/traces/complete" in mock_post.call_args[0][0]
 
             # Verify warning was printed
             captured = capsys.readouterr()
