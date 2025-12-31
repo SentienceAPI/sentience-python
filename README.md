@@ -172,18 +172,30 @@ with SentienceBrowser(headless=False) as browser:
 <details>
 <summary><h3>📸 Snapshot - Intelligent Page Analysis</h3></summary>
 
-**`snapshot(browser, screenshot=True, show_overlay=False)`** - Capture page state with AI-ranked elements
+**`snapshot(browser, options=SnapshotOptions(screenshot=True, show_overlay=False, limit=None, goal=None))`** - Capture page state with AI-ranked elements
 
 Features:
 - Returns semantic elements with roles, text, importance scores, and bounding boxes
-- Optional screenshot capture (PNG/JPEG)
-- Optional visual overlay to see what elements are detected
+- Optional screenshot capture (PNG/JPEG) - set `screenshot=True`
+- Optional visual overlay to see what elements are detected - set `show_overlay=True`
 - Pydantic models for type safety
+- Optional ML reranking when `goal` is provided
 - **`snapshot.save(filepath)`** - Export to JSON
 
 **Example:**
 ```python
-snap = snapshot(browser, screenshot=True, show_overlay=True)
+from sentience import snapshot, SnapshotOptions
+
+# Basic snapshot with defaults (no screenshot, no overlay)
+snap = snapshot(browser)
+
+# With screenshot and overlay
+snap = snapshot(browser, SnapshotOptions(
+    screenshot=True,
+    show_overlay=True,
+    limit=100,
+    goal="Click the login button"  # Optional: enables ML reranking
+))
 
 # Access structured data
 print(f"URL: {snap.url}")
@@ -193,6 +205,10 @@ print(f"Elements: {len(snap.elements)}")
 # Iterate over elements
 for element in snap.elements:
     print(f"{element.role}: {element.text} (importance: {element.importance})")
+
+    # Check ML reranking metadata (when goal is provided)
+    if element.rerank_index is not None:
+        print(f"  ML rank: {element.rerank_index} (confidence: {element.ml_probability:.2%})")
 ```
 
 </details>
@@ -666,7 +682,7 @@ if result.url_changed:
 snap = snapshot(browser)
 
 # Slower - with screenshot (for debugging/verification)
-snap = snapshot(browser, screenshot=True)
+snap = snapshot(browser, SnapshotOptions(screenshot=True))
 ```
 
 </details>
