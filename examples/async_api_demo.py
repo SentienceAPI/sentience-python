@@ -15,7 +15,14 @@ import asyncio
 import os
 
 # Import async API functions
-from sentience.async_api import AsyncSentienceBrowser, click_async, find, press_async, snapshot_async, type_text_async
+from sentience.async_api import (
+    AsyncSentienceBrowser,
+    click_async,
+    find,
+    press_async,
+    snapshot_async,
+    type_text_async,
+)
 from sentience.models import SnapshotOptions, Viewport
 
 
@@ -136,6 +143,7 @@ async def from_existing_page_example():
 
 async def multiple_browsers_example():
     """Example running multiple browsers concurrently"""
+
     async def process_site(url: str):
         async with AsyncSentienceBrowser(headless=True) as browser:
             await browser.goto(url)
@@ -182,4 +190,3 @@ async def main():
 if __name__ == "__main__":
     # Run the async main function
     asyncio.run(main())
-

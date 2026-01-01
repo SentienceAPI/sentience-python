@@ -147,7 +147,9 @@ async def test_async_click_rect():
         await browser.page.wait_for_load_state("networkidle")
 
         # Click at specific coordinates
-        result = await click_rect_async(browser, {"x": 100, "y": 200, "w": 50, "h": 30}, highlight=False)
+        result = await click_rect_async(
+            browser, {"x": 100, "y": 200, "w": 50, "h": 30}, highlight=False
+        )
         assert result.success is True
         assert result.duration_ms > 0
 
