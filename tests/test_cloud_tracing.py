@@ -12,7 +12,6 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from sentience.cloud_tracing import CloudTraceSink
-from sentience.models import ScreenshotMetadata
 from sentience.tracer_factory import create_tracer
 from sentience.tracing import JsonlTraceSink, Tracer
 
@@ -241,10 +240,26 @@ class TestCloudTraceSink:
 
         # Create test screenshot
         test_image_base64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
-        test_data_url = f"data:image/png;base64,{test_image_base64}"
 
         sink = CloudTraceSink(upload_url, run_id=run_id, api_key=api_key)
-        sink.store_screenshot(sequence=1, screenshot_data=test_data_url, format="png")
+
+        # Emit trace event with screenshot embedded
+        sink.emit(
+            {
+                "v": 1,
+                "type": "snapshot",
+                "ts": "2026-01-01T00:00:00.000Z",
+                "run_id": run_id,
+                "seq": 1,
+                "step_id": "step-1",
+                "data": {
+                    "url": "https://example.com",
+                    "element_count": 10,
+                    "screenshot_base64": test_image_base64,
+                    "screenshot_format": "png",
+                },
+            }
+        )
 
         # Mock all HTTP calls
         mock_upload_urls = {
@@ -289,8 +304,7 @@ class TestCloudTraceSink:
             mock_put.side_effect = put_side_effect
             mock_post.side_effect = post_side_effect
 
-            # Emit trace event and close
-            sink.emit({"v": 1, "type": "run_start", "seq": 1})
+            # Close triggers upload (which extracts screenshots and uploads them)
             sink.close()
 
             # Verify trace was uploaded
@@ -304,13 +318,38 @@ class TestCloudTraceSink:
             put_urls = [call[0][0] for call in mock_put.call_args_list]
             assert any("screenshots" in url for url in put_urls)
 
+            # Verify uploaded trace data does NOT contain screenshot_base64
+            trace_upload_call = None
+            for call in mock_put.call_args_list:
+                headers = call[1].get("headers", {})
+                if headers.get("Content-Type") == "application/x-gzip":
+                    trace_upload_call = call
+                    break
+
+            assert trace_upload_call is not None, "Trace upload should have been called"
+
+            # Decompress and verify screenshot_base64 is removed
+            compressed_data = trace_upload_call[1]["data"]
+            decompressed_data = gzip.decompress(compressed_data)
+            trace_content = decompressed_data.decode("utf-8")
+            events = [json.loads(line) for line in trace_content.strip().split("\n") if line.strip()]
+
+            snapshot_events = [e for e in events if e.get("type") == "snapshot"]
+            assert len(snapshot_events) > 0, "Should have snapshot event"
+
+            for event in snapshot_events:
+                data = event.get("data", {})
+                assert "screenshot_base64" not in data, "screenshot_base64 should be removed from uploaded trace"
+                assert "screenshot_format" not in data, "screenshot_format should be removed from uploaded trace"
+
         # Cleanup
         cache_dir = Path.home() / ".sentience" / "traces" / "pending"
-        screenshot_dir = cache_dir / f"{run_id}_screenshots"
-        if screenshot_dir.exists():
-            for f in screenshot_dir.glob("step_*"):
-                f.unlink()
-            screenshot_dir.rmdir()
+        trace_path = cache_dir / f"{run_id}.jsonl"
+        cleaned_trace_path = cache_dir / f"{run_id}.cleaned.jsonl"
+        if trace_path.exists():
+            os.remove(trace_path)
+        if cleaned_trace_path.exists():
+            os.remove(cleaned_trace_path)
 
 
 class TestTracerFactory:
