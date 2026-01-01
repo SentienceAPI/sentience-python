@@ -467,18 +467,17 @@ async def _snapshot_via_api_async(
     }
 
     try:
-        # Lazy import aiohttp - only needed for async API calls
-        import aiohttp
+        # Lazy import httpx - only needed for async API calls
+        import httpx
 
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
                 f"{browser.api_url}/v1/snapshot",
-                data=payload_json,
+                content=payload_json,
                 headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as response:
-                response.raise_for_status()
-                api_result = await response.json()
+            )
+            response.raise_for_status()
+            api_result = response.json()
 
         # Merge API result with local data
         snapshot_data = {
@@ -509,9 +508,9 @@ async def _snapshot_via_api_async(
 
         return Snapshot(**snapshot_data)
     except ImportError:
-        # Fallback to requests if aiohttp not available (shouldn't happen in async context)
+        # Fallback to requests if httpx not available (shouldn't happen in async context)
         raise RuntimeError(
-            "aiohttp is required for async API calls. Install it with: pip install aiohttp"
+            "httpx is required for async API calls. Install it with: pip install httpx"
         )
     except Exception as e:
         raise RuntimeError(f"API request failed: {e}")
