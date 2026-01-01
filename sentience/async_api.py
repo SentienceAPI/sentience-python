@@ -253,9 +253,7 @@ class AsyncSentienceBrowser:
                 f"5. Diagnostic info: {diag}"
             )
 
-    async def _inject_storage_state(
-        self, storage_state: str | Path | StorageState | dict
-    ) -> None:
+    async def _inject_storage_state(self, storage_state: str | Path | StorageState | dict) -> None:
         """Inject storage state (cookies + localStorage) into browser context (async)"""
         import json
 
@@ -628,7 +626,9 @@ async def _snapshot_via_api(
 
     # Wait for extension injection
     try:
-        await browser.page.wait_for_function("typeof window.sentience !== 'undefined'", timeout=5000)
+        await browser.page.wait_for_function(
+            "typeof window.sentience !== 'undefined'", timeout=5000
+        )
     except Exception as e:
         raise RuntimeError(
             "Sentience extension failed to inject. Cannot collect raw data for API processing."
@@ -929,7 +929,9 @@ async def type_text(
     )
 
 
-async def press(browser: AsyncSentienceBrowser, key: str, take_snapshot: bool = False) -> ActionResult:
+async def press(
+    browser: AsyncSentienceBrowser, key: str, take_snapshot: bool = False
+) -> ActionResult:
     """
     Press a keyboard key (async)
 
