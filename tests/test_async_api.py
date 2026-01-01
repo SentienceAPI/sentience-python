@@ -268,4 +268,3 @@ async def test_async_snapshot_with_goal():
         assert snap.status == "success"
         # Elements may have ML reranking metadata if API key is provided
         # (This test works with or without API key)
-
