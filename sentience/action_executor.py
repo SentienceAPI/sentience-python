@@ -6,11 +6,12 @@ This separates action execution concerns from LLM interaction.
 """
 
 import re
-from typing import Any
+from typing import Any, Union
 
 from .actions import click, click_async, press, press_async, type_text, type_text_async
 from .browser import AsyncSentienceBrowser, SentienceBrowser
 from .models import Snapshot
+from .protocols import AsyncBrowserProtocol, BrowserProtocol
 
 
 class ActionExecutor:
@@ -23,15 +24,38 @@ class ActionExecutor:
     - Handle action parsing errors consistently
     """
 
-    def __init__(self, browser: SentienceBrowser | AsyncSentienceBrowser):
+    def __init__(
+        self,
+        browser: SentienceBrowser | AsyncSentienceBrowser | BrowserProtocol | AsyncBrowserProtocol,
+    ):
         """
         Initialize action executor.
 
         Args:
-            browser: SentienceBrowser or AsyncSentienceBrowser instance
+            browser: SentienceBrowser, AsyncSentienceBrowser, or protocol-compatible instance
+                    (for testing, can use mock objects that implement BrowserProtocol)
         """
         self.browser = browser
-        self._is_async = isinstance(browser, AsyncSentienceBrowser)
+        # Check if browser is async - support both concrete types and protocols
+        # Check concrete types first (most reliable)
+        if isinstance(browser, AsyncSentienceBrowser):
+            self._is_async = True
+        elif isinstance(browser, SentienceBrowser):
+            self._is_async = False
+        else:
+            # For protocol-based browsers, check if methods are actually async
+            # This is more reliable than isinstance checks which can match both protocols
+            import inspect
+
+            start_method = getattr(browser, "start", None)
+            if start_method and inspect.iscoroutinefunction(start_method):
+                self._is_async = True
+            elif isinstance(browser, BrowserProtocol):
+                # If it implements BrowserProtocol and start is not async, it's sync
+                self._is_async = False
+            else:
+                # Default to sync for unknown types
+                self._is_async = False
 
     def execute(self, action_str: str, snap: Snapshot) -> dict[str, Any]:
         """
