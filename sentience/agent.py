@@ -6,7 +6,7 @@ Implements observe-think-act loop for natural language commands
 import asyncio
 import hashlib
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 from .action_executor import ActionExecutor
 from .agent_config import AgentConfig
@@ -15,6 +15,7 @@ from .browser import AsyncSentienceBrowser, SentienceBrowser
 from .element_filter import ElementFilter
 from .llm_interaction_handler import LLMInteractionHandler
 from .llm_provider import LLMProvider, LLMResponse
+from .protocols import AsyncBrowserProtocol, BrowserProtocol
 from .models import (
     ActionHistory,
     ActionTokenUsage,
@@ -58,7 +59,7 @@ class SentienceAgent(BaseAgent):
 
     def __init__(
         self,
-        browser: SentienceBrowser,
+        browser: Union[SentienceBrowser, BrowserProtocol],
         llm: LLMProvider,
         default_snapshot_limit: int = 50,
         verbose: bool = True,
@@ -69,7 +70,8 @@ class SentienceAgent(BaseAgent):
         Initialize Sentience Agent
 
         Args:
-            browser: SentienceBrowser instance
+            browser: SentienceBrowser instance or BrowserProtocol-compatible object
+                    (for testing, can use mock objects that implement BrowserProtocol)
             llm: LLM provider (OpenAIProvider, AnthropicProvider, etc.)
             default_snapshot_limit: Default maximum elements to include in context (default: 50)
             verbose: Print execution logs (default: True)
