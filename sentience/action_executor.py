@@ -6,11 +6,12 @@ This separates action execution concerns from LLM interaction.
 """
 
 import re
-from typing import Any
+from typing import Any, Union
 
 from .actions import click, click_async, press, press_async, type_text, type_text_async
 from .browser import AsyncSentienceBrowser, SentienceBrowser
 from .models import Snapshot
+from .protocols import AsyncBrowserProtocol, BrowserProtocol
 
 
 class ActionExecutor:
@@ -23,15 +24,17 @@ class ActionExecutor:
     - Handle action parsing errors consistently
     """
 
-    def __init__(self, browser: SentienceBrowser | AsyncSentienceBrowser):
+    def __init__(self, browser: Union[SentienceBrowser, AsyncSentienceBrowser, BrowserProtocol, AsyncBrowserProtocol]):
         """
         Initialize action executor.
 
         Args:
-            browser: SentienceBrowser or AsyncSentienceBrowser instance
+            browser: SentienceBrowser, AsyncSentienceBrowser, or protocol-compatible instance
+                    (for testing, can use mock objects that implement BrowserProtocol)
         """
         self.browser = browser
-        self._is_async = isinstance(browser, AsyncSentienceBrowser)
+        # Check if browser is async - support both concrete types and protocols
+        self._is_async = isinstance(browser, (AsyncSentienceBrowser, AsyncBrowserProtocol))
 
     def execute(self, action_str: str, snap: Snapshot) -> dict[str, Any]:
         """
