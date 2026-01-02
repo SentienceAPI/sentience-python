@@ -55,6 +55,7 @@ from .query import find, query
 from .read import read
 from .recorder import Recorder, Trace, TraceStep, record
 from .screenshot import screenshot
+from .sentience_methods import AgentAction, SentienceAction
 from .snapshot import snapshot
 from .text_search import find_text_rect
 from .tracer_factory import SENTIENCE_API_URL, create_tracer
@@ -150,4 +151,7 @@ __all__ = [
     "format_snapshot_for_llm",
     # Agent Config (v0.12.0+)
     "AgentConfig",
+    # Enums
+    "SentienceAction",
+    "AgentAction",
 ]

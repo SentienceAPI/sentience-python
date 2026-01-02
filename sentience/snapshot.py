@@ -13,6 +13,7 @@ import requests
 from .browser import AsyncSentienceBrowser, SentienceBrowser
 from .browser_evaluator import BrowserEvaluator
 from .models import Snapshot, SnapshotOptions
+from .sentience_methods import SentienceMethod
 
 # Maximum payload size for API requests (10MB server limit)
 MAX_PAYLOAD_BYTES = 10 * 1024 * 1024
@@ -171,7 +172,7 @@ def _snapshot_via_api(
     if options.screenshot is not False:
         raw_options["screenshot"] = options.screenshot
 
-    raw_result = BrowserEvaluator.call_sentience_method(browser.page, "snapshot", **raw_options)
+    raw_result = BrowserEvaluator.invoke(browser.page, SentienceAction.SNAPSHOT, **raw_options)
 
     # Save trace if requested (save raw data before API processing)
     if options.save_trace:
