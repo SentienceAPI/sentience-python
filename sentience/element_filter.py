@@ -65,7 +65,7 @@ class ElementFilter:
     def filter_by_goal(
         snapshot: Snapshot,
         goal: str | None,
-        max_elements: int = 50,
+        max_elements: int = 100,
     ) -> list[Element]:
         """
         Filter elements from snapshot based on goal context.
