@@ -5,12 +5,13 @@ Enables end users to control web automation using plain English
 
 import json
 import time
-from typing import Any
+from typing import Any, Union
 
 from .agent import SentienceAgent
 from .browser import SentienceBrowser
 from .llm_provider import LLMProvider
 from .models import ExtractionResult, Snapshot, SnapshotOptions, StepExecutionResult
+from .protocols import BrowserProtocol
 from .snapshot import snapshot
 
 
@@ -29,12 +30,18 @@ class ConversationalAgent:
          The top result is from amazon.com selling the Apple Magic Mouse 2 for $79."
     """
 
-    def __init__(self, browser: SentienceBrowser, llm: LLMProvider, verbose: bool = True):
+    def __init__(
+        self,
+        browser: SentienceBrowser | BrowserProtocol,
+        llm: LLMProvider,
+        verbose: bool = True,
+    ):
         """
         Initialize conversational agent
 
         Args:
-            browser: SentienceBrowser instance
+            browser: SentienceBrowser instance or BrowserProtocol-compatible object
+                    (for testing, can use mock objects that implement BrowserProtocol)
             llm: LLM provider (OpenAI, Anthropic, LocalLLM, etc.)
             verbose: Print step-by-step execution logs (default: True)
         """
