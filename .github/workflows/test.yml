@@ -32,6 +32,24 @@ jobs:
     - name: Install dependencies
       run: |
         pip install -e ".[dev]"
+        pip install pre-commit mypy types-requests
+
+    - name: Lint with pre-commit
+      continue-on-error: true
+      run: |
+        pre-commit run --all-files
+
+    - name: Type check with mypy
+      continue-on-error: true
+      run: |
+        mypy sentience --ignore-missing-imports --no-strict-optional
+
+    - name: Check code style
+      continue-on-error: true
+      run: |
+        black --check sentience tests --line-length=100
+        isort --check-only --profile black sentience tests
+        flake8 sentience tests --max-line-length=100 --extend-ignore=E203,W503,E501 --max-complexity=15
 
     - name: Build extension (if needed)
       if: runner.os != 'Windows'

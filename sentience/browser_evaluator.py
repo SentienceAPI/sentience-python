@@ -13,6 +13,7 @@ from playwright.async_api import Page as AsyncPage
 from playwright.sync_api import Page
 
 from .browser import AsyncSentienceBrowser, SentienceBrowser
+from .sentience_methods import SentienceMethod
 
 
 class BrowserEvaluator:
@@ -126,18 +127,18 @@ class BrowserEvaluator:
             return {"error": "Could not gather diagnostics"}
 
     @staticmethod
-    def call_sentience_method(
+    def invoke(
         page: Page,
-        method_name: str,
+        method: SentienceMethod | str,
         *args: Any,
         **kwargs: Any,
     ) -> Any:
         """
-        Call a window.sentience method with error handling.
+        Invoke a window.sentience method with error handling (sync).
 
         Args:
             page: Playwright Page instance (sync)
-            method_name: Name of the method (e.g., "snapshot", "click")
+            method: SentienceMethod enum value or method name string (e.g., SentienceMethod.SNAPSHOT or "snapshot")
             *args: Positional arguments to pass to the method
             **kwargs: Keyword arguments to pass to the method
 
@@ -146,7 +147,16 @@ class BrowserEvaluator:
 
         Raises:
             RuntimeError: If method is not available or call fails
+
+        Example:
+            ```python
+            result = BrowserEvaluator.invoke(page, SentienceMethod.SNAPSHOT, limit=50)
+            success = BrowserEvaluator.invoke(page, SentienceMethod.CLICK, element_id)
+            ```
         """
+        # Convert enum to string if needed
+        method_name = method.value if isinstance(method, SentienceMethod) else method
+
         # Build JavaScript call
         if args and kwargs:
             # Both args and kwargs - use object spread
@@ -184,18 +194,18 @@ class BrowserEvaluator:
         return result
 
     @staticmethod
-    async def call_sentience_method_async(
+    async def invoke_async(
         page: AsyncPage,
-        method_name: str,
+        method: SentienceMethod | str,
         *args: Any,
         **kwargs: Any,
     ) -> Any:
         """
-        Call a window.sentience method with error handling (async).
+        Invoke a window.sentience method with error handling (async).
 
         Args:
             page: Playwright AsyncPage instance
-            method_name: Name of the method (e.g., "snapshot", "click")
+            method: SentienceMethod enum value or method name string (e.g., SentienceMethod.SNAPSHOT or "snapshot")
             *args: Positional arguments to pass to the method
             **kwargs: Keyword arguments to pass to the method
 
@@ -204,7 +214,16 @@ class BrowserEvaluator:
 
         Raises:
             RuntimeError: If method is not available or call fails
+
+        Example:
+            ```python
+            result = await BrowserEvaluator.invoke_async(page, SentienceMethod.SNAPSHOT, limit=50)
+            success = await BrowserEvaluator.invoke_async(page, SentienceMethod.CLICK, element_id)
+            ```
         """
+        # Convert enum to string if needed
+        method_name = method.value if isinstance(method, SentienceMethod) else method
+
         # Build JavaScript call
         if args and kwargs:
             js_code = f"""
@@ -240,18 +259,19 @@ class BrowserEvaluator:
     @staticmethod
     def verify_method_exists(
         page: Page,
-        method_name: str,
+        method: SentienceMethod | str,
     ) -> bool:
         """
         Verify that a window.sentience method exists.
 
         Args:
             page: Playwright Page instance (sync)
-            method_name: Name of the method to check
+            method: SentienceMethod enum value or method name string
 
         Returns:
             True if method exists, False otherwise
         """
+        method_name = method.value if isinstance(method, SentienceMethod) else method
         try:
             return page.evaluate(f"typeof window.sentience.{method_name} !== 'undefined'")
         except Exception:
@@ -260,18 +280,19 @@ class BrowserEvaluator:
     @staticmethod
     async def verify_method_exists_async(
         page: AsyncPage,
-        method_name: str,
+        method: SentienceMethod | str,
     ) -> bool:
         """
         Verify that a window.sentience method exists (async).
 
         Args:
             page: Playwright AsyncPage instance
-            method_name: Name of the method to check
+            method: SentienceMethod enum value or method name string
 
         Returns:
             True if method exists, False otherwise
         """
+        method_name = method.value if isinstance(method, SentienceMethod) else method
         try:
             return await page.evaluate(f"typeof window.sentience.{method_name} !== 'undefined'")
         except Exception:
