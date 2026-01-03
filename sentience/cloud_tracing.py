@@ -99,7 +99,8 @@ class CloudTraceSink(TraceSink):
         # Use persistent cache directory instead of temp file
         # This ensures traces survive process crashes
         cache_dir = Path.home() / ".sentience" / "traces" / "pending"
-        TraceFileManager.ensure_directory(cache_dir)
+        # Create directory if it doesn't exist (ensure_directory is for file paths, not dirs)
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Persistent file (survives process crash)
         self._path = cache_dir / f"{run_id}.jsonl"
