@@ -1,3 +1,5 @@
+from typing import Optional
+
 """
 Actions v1 - click, type, press
 """
@@ -5,7 +7,9 @@ Actions v1 - click, type, press
 import time
 
 from .browser import AsyncSentienceBrowser, SentienceBrowser
+from .browser_evaluator import BrowserEvaluator
 from .models import ActionResult, BBox, Snapshot
+from .sentience_methods import SentienceMethod
 from .snapshot import snapshot, snapshot_async
 
 
@@ -59,13 +63,8 @@ def click(  # noqa: C901
             else:
                 # Fallback to JS click if element not found in snapshot
                 try:
-                    success = browser.page.evaluate(
-                        """
-                        (id) => {
-                            return window.sentience.click(id);
-                        }
-                        """,
-                        element_id,
+                    success = BrowserEvaluator.invoke(
+                        browser.page, SentienceMethod.CLICK, element_id
                     )
                 except Exception:
                     # Navigation might have destroyed context, assume success if URL changed
@@ -73,27 +72,13 @@ def click(  # noqa: C901
         except Exception:
             # Fallback to JS click on error
             try:
-                success = browser.page.evaluate(
-                    """
-                    (id) => {
-                        return window.sentience.click(id);
-                    }
-                    """,
-                    element_id,
-                )
+                success = BrowserEvaluator.invoke(browser.page, SentienceMethod.CLICK, element_id)
             except Exception:
                 # Navigation might have destroyed context, assume success if URL changed
                 success = True
     else:
         # Legacy JS-based click
-        success = browser.page.evaluate(
-            """
-            (id) => {
-                return window.sentience.click(id);
-            }
-            """,
-            element_id,
-        )
+        success = BrowserEvaluator.invoke(browser.page, SentienceMethod.CLICK, element_id)
 
     # Wait a bit for navigation/DOM updates
     try:

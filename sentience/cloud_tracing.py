@@ -12,10 +12,12 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Optional, Protocol, Union
 
 import requests
 
+from sentience.models import TraceStats
+from sentience.trace_file_manager import TraceFileManager
 from sentience.tracing import TraceSink
 
 
@@ -97,6 +99,7 @@ class CloudTraceSink(TraceSink):
         # Use persistent cache directory instead of temp file
         # This ensures traces survive process crashes
         cache_dir = Path.home() / ".sentience" / "traces" / "pending"
+        # Create directory if it doesn't exist (ensure_directory is for file paths, not dirs)
         cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Persistent file (survives process crash)
@@ -123,9 +126,7 @@ class CloudTraceSink(TraceSink):
         if self._closed:
             raise RuntimeError("CloudTraceSink is closed")
 
-        json_str = json.dumps(event, ensure_ascii=False)
-        self._trace_file.write(json_str + "\n")
-        self._trace_file.flush()  # Ensure written to disk
+        TraceFileManager.write_event(self._trace_file, event)
 
     def close(
         self,
@@ -146,8 +147,24 @@ class CloudTraceSink(TraceSink):
 
         self._closed = True
 
-        # Close file first
+        # Flush and sync file to disk before closing to ensure all data is written
+        # This is critical on CI systems where file system operations may be slower
+        self._trace_file.flush()
+        try:
+            # Force OS to write buffered data to disk
+            os.fsync(self._trace_file.fileno())
+        except (OSError, AttributeError):
+            # Some file handles don't support fsync (e.g., StringIO in tests)
+            # This is fine - flush() is usually sufficient
+            pass
         self._trace_file.close()
+
+        # Ensure file exists and has content before proceeding
+        if not self._path.exists() or self._path.stat().st_size == 0:
+            # No events were emitted, nothing to upload
+            if self.logger:
+                self.logger.warning("No trace events to upload (file is empty or missing)")
+            return
 
         # Generate index after closing file
         self._generate_index()
@@ -384,7 +401,9 @@ class CloudTraceSink(TraceSink):
             if self.logger:
                 self.logger.warning(f"Error uploading trace index: {e}")
 
-    def _infer_final_status_from_trace(self) -> str:
+    def _infer_final_status_from_trace(
+        self, events: list[dict[str, Any]], run_end: dict[str, Any] | None
+    ) -> str:
         """
         Infer final status from trace events by reading the trace file.
 
@@ -435,103 +454,44 @@ class CloudTraceSink(TraceSink):
             # If we can't read the trace, default to unknown
             return "unknown"
 
-    def _extract_stats_from_trace(self) -> dict[str, Any]:
+    def _extract_stats_from_trace(self) -> TraceStats:
         """
         Extract execution statistics from trace file.
 
         Returns:
-            Dictionary with stats fields for /v1/traces/complete
+            TraceStats with stats fields for /v1/traces/complete
         """
         try:
+            # Check if file exists before reading
+            if not self._path.exists():
+                if self.logger:
+                    self.logger.warning(f"Trace file not found: {self._path}")
+                return TraceStats(
+                    total_steps=0,
+                    total_events=0,
+                    duration_ms=None,
+                    final_status="unknown",
+                    started_at=None,
+                    ended_at=None,
+                )
+
             # Read trace file to extract stats
-            with open(self._path, encoding="utf-8") as f:
-                events = []
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                        events.append(event)
-                    except json.JSONDecodeError:
-                        continue
-
-            if not events:
-                return {
-                    "total_steps": 0,
-                    "total_events": 0,
-                    "duration_ms": None,
-                    "final_status": "unknown",
-                    "started_at": None,
-                    "ended_at": None,
-                }
-
-            # Find run_start and run_end events
-            run_start = next((e for e in events if e.get("type") == "run_start"), None)
-            run_end = next((e for e in events if e.get("type") == "run_end"), None)
-
-            # Extract timestamps
-            started_at: str | None = None
-            ended_at: str | None = None
-            if run_start:
-                started_at = run_start.get("ts")
-            if run_end:
-                ended_at = run_end.get("ts")
-
-            # Calculate duration
-            duration_ms: int | None = None
-            if started_at and ended_at:
-                try:
-                    from datetime import datetime
-
-                    start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                    end_dt = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
-                    delta = end_dt - start_dt
-                    duration_ms = int(delta.total_seconds() * 1000)
-                except Exception:
-                    pass
-
-            # Count steps (from step_start events, only first attempt)
-            step_indices = set()
-            for event in events:
-                if event.get("type") == "step_start":
-                    step_index = event.get("data", {}).get("step_index")
-                    if step_index is not None:
-                        step_indices.add(step_index)
-            total_steps = len(step_indices) if step_indices else 0
-
-            # If run_end has steps count, use that (more accurate)
-            if run_end:
-                steps_from_end = run_end.get("data", {}).get("steps")
-                if steps_from_end is not None:
-                    total_steps = max(total_steps, steps_from_end)
-
-            # Count total events
-            total_events = len(events)
-
-            # Infer final status
-            final_status = self._infer_final_status_from_trace()
-
-            return {
-                "total_steps": total_steps,
-                "total_events": total_events,
-                "duration_ms": duration_ms,
-                "final_status": final_status,
-                "started_at": started_at,
-                "ended_at": ended_at,
-            }
-
+            events = TraceFileManager.read_events(self._path)
+            # Use TraceFileManager to extract stats (with custom status inference)
+            return TraceFileManager.extract_stats(
+                events, infer_status_func=self._infer_final_status_from_trace
+            )
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"Error extracting stats from trace: {e}")
-            return {
-                "total_steps": 0,
-                "total_events": 0,
-                "duration_ms": None,
-                "final_status": "unknown",
-                "started_at": None,
-                "ended_at": None,
-            }
+            return TraceStats(
+                total_steps=0,
+                total_events=0,
+                duration_ms=None,
+                final_status="unknown",
+                started_at=None,
+                ended_at=None,
+            )
 
     def _complete_trace(self) -> None:
         """
@@ -547,22 +507,21 @@ class CloudTraceSink(TraceSink):
             # Extract stats from trace file
             stats = self._extract_stats_from_trace()
 
-            # Add file size fields
-            stats.update(
-                {
-                    "trace_file_size_bytes": self.trace_file_size_bytes,
-                    "screenshot_total_size_bytes": self.screenshot_total_size_bytes,
-                    "screenshot_count": self.screenshot_count,
-                    "index_file_size_bytes": self.index_file_size_bytes,
-                }
-            )
+            # Build completion payload with stats and file size fields
+            completion_payload = {
+                **stats.model_dump(),  # Convert TraceStats to dict
+                "trace_file_size_bytes": self.trace_file_size_bytes,
+                "screenshot_total_size_bytes": self.screenshot_total_size_bytes,
+                "screenshot_count": self.screenshot_count,
+                "index_file_size_bytes": self.index_file_size_bytes,
+            }
 
             response = requests.post(
                 f"{self.api_url}/v1/traces/complete",
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={
                     "run_id": self.run_id,
-                    "stats": stats,
+                    "stats": completion_payload,
                 },
                 timeout=10,
             )
@@ -593,28 +552,26 @@ class CloudTraceSink(TraceSink):
         sequence = 0
 
         try:
-            with open(self._path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
+            # Check if file exists before reading
+            if not self._path.exists():
+                if self.logger:
+                    self.logger.warning(f"Trace file not found: {self._path}")
+                return screenshots
 
-                    try:
-                        event = json.loads(line)
-                        # Check if this is a snapshot event with screenshot
-                        if event.get("type") == "snapshot":
-                            data = event.get("data", {})
-                            screenshot_base64 = data.get("screenshot_base64")
+            events = TraceFileManager.read_events(self._path)
+            for event in events:
+                # Check if this is a snapshot event with screenshot
+                if event.get("type") == "snapshot":
+                    data = event.get("data", {})
+                    screenshot_base64 = data.get("screenshot_base64")
 
-                            if screenshot_base64:
-                                sequence += 1
-                                screenshots[sequence] = {
-                                    "base64": screenshot_base64,
-                                    "format": data.get("screenshot_format", "jpeg"),
-                                    "step_id": event.get("step_id"),
-                                }
-                    except json.JSONDecodeError:
-                        continue
+                    if screenshot_base64:
+                        sequence += 1
+                        screenshots[sequence] = {
+                            "base64": screenshot_base64,
+                            "format": data.get("screenshot_format", "jpeg"),
+                            "step_id": event.get("step_id"),
+                        }
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error extracting screenshots: {e}")
@@ -629,34 +586,32 @@ class CloudTraceSink(TraceSink):
             output_path: Path to write cleaned trace file
         """
         try:
-            with (
-                open(self._path, encoding="utf-8") as infile,
-                open(output_path, "w", encoding="utf-8") as outfile,
-            ):
-                for line in infile:
-                    line = line.strip()
-                    if not line:
-                        continue
+            # Check if file exists before reading
+            if not self._path.exists():
+                if self.logger:
+                    self.logger.warning(f"Trace file not found: {self._path}")
+                # Create empty cleaned trace file
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.touch()
+                return
 
-                    try:
-                        event = json.loads(line)
-                        # Remove screenshot_base64 from snapshot events
-                        if event.get("type") == "snapshot":
-                            data = event.get("data", {})
-                            if "screenshot_base64" in data:
-                                # Create copy without screenshot fields
-                                cleaned_data = {
-                                    k: v
-                                    for k, v in data.items()
-                                    if k not in ("screenshot_base64", "screenshot_format")
-                                }
-                                event["data"] = cleaned_data
+            events = TraceFileManager.read_events(self._path)
+            with open(output_path, "w", encoding="utf-8") as outfile:
+                for event in events:
+                    # Remove screenshot_base64 from snapshot events
+                    if event.get("type") == "snapshot":
+                        data = event.get("data", {})
+                        if "screenshot_base64" in data:
+                            # Create copy without screenshot fields
+                            cleaned_data = {
+                                k: v
+                                for k, v in data.items()
+                                if k not in ("screenshot_base64", "screenshot_format")
+                            }
+                            event["data"] = cleaned_data
 
-                        # Write cleaned event
-                        outfile.write(json.dumps(event, ensure_ascii=False) + "\n")
-                    except json.JSONDecodeError:
-                        # Skip invalid lines
-                        continue
+                    # Write cleaned event
+                    TraceFileManager.write_event(outfile, event)
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error creating cleaned trace: {e}")
