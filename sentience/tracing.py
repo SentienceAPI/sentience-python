@@ -4,13 +4,15 @@ Trace event writer for Sentience agents.
 Provides abstract interface and JSONL implementation for emitting trace events.
 """
 
-import json
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
+
+from .models import TraceStats
+from .trace_file_manager import TraceFileManager
 
 
 @dataclass
@@ -88,7 +90,7 @@ class JsonlTraceSink(TraceSink):
             path: File path to write traces to
         """
         self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        TraceFileManager.ensure_directory(self.path)
 
         # Open file in append mode with line buffering
         self._file = open(self.path, "a", encoding="utf-8", buffering=1)
@@ -100,8 +102,7 @@ class JsonlTraceSink(TraceSink):
         Args:
             event: Event dictionary
         """
-        json_str = json.dumps(event, ensure_ascii=False)
-        self._file.write(json_str + "\n")
+        TraceFileManager.write_event(self._file, event)
 
     def close(self) -> None:
         """Close the file and generate index."""
@@ -111,119 +112,26 @@ class JsonlTraceSink(TraceSink):
         # Generate index after closing file
         self._generate_index()
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> TraceStats:
         """
         Extract execution statistics from trace file (for local traces).
 
         Returns:
-            Dictionary with stats fields (same format as Tracer.get_stats())
+            TraceStats with execution statistics
         """
         try:
             # Read trace file to extract stats
-            with open(self.path, encoding="utf-8") as f:
-                events = []
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        event = json.loads(line)
-                        events.append(event)
-                    except json.JSONDecodeError:
-                        continue
-
-            if not events:
-                return {
-                    "total_steps": 0,
-                    "total_events": 0,
-                    "duration_ms": None,
-                    "final_status": "unknown",
-                    "started_at": None,
-                    "ended_at": None,
-                }
-
-            # Find run_start and run_end events
-            run_start = next((e for e in events if e.get("type") == "run_start"), None)
-            run_end = next((e for e in events if e.get("type") == "run_end"), None)
-
-            # Extract timestamps
-            started_at: str | None = None
-            ended_at: str | None = None
-            if run_start:
-                started_at = run_start.get("ts")
-            if run_end:
-                ended_at = run_end.get("ts")
-
-            # Calculate duration
-            duration_ms: int | None = None
-            if started_at and ended_at:
-                try:
-                    from datetime import datetime
-
-                    start_dt = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-                    end_dt = datetime.fromisoformat(ended_at.replace("Z", "+00:00"))
-                    delta = end_dt - start_dt
-                    duration_ms = int(delta.total_seconds() * 1000)
-                except Exception:
-                    pass
-
-            # Count steps (from step_start events, only first attempt)
-            step_indices = set()
-            for event in events:
-                if event.get("type") == "step_start":
-                    step_index = event.get("data", {}).get("step_index")
-                    if step_index is not None:
-                        step_indices.add(step_index)
-            total_steps = len(step_indices) if step_indices else 0
-
-            # If run_end has steps count, use that (more accurate)
-            if run_end:
-                steps_from_end = run_end.get("data", {}).get("steps")
-                if steps_from_end is not None:
-                    total_steps = max(total_steps, steps_from_end)
-
-            # Count total events
-            total_events = len(events)
-
-            # Infer final status
-            final_status = "unknown"
-            # Check for run_end event with status
-            if run_end:
-                status = run_end.get("data", {}).get("status")
-                if status in ("success", "failure", "partial", "unknown"):
-                    final_status = status
-            else:
-                # Infer from error events
-                has_errors = any(e.get("type") == "error" for e in events)
-                if has_errors:
-                    step_ends = [e for e in events if e.get("type") == "step_end"]
-                    if step_ends:
-                        final_status = "partial"
-                    else:
-                        final_status = "failure"
-                else:
-                    step_ends = [e for e in events if e.get("type") == "step_end"]
-                    if step_ends:
-                        final_status = "success"
-
-            return {
-                "total_steps": total_steps,
-                "total_events": total_events,
-                "duration_ms": duration_ms,
-                "final_status": final_status,
-                "started_at": started_at,
-                "ended_at": ended_at,
-            }
-
+            events = TraceFileManager.read_events(self.path)
+            return TraceFileManager.extract_stats(events)
         except Exception:
-            return {
-                "total_steps": 0,
-                "total_events": 0,
-                "duration_ms": None,
-                "final_status": "unknown",
-                "started_at": None,
-                "ended_at": None,
-            }
+            return TraceStats(
+                total_steps=0,
+                total_events=0,
+                duration_ms=None,
+                final_status="unknown",
+                started_at=None,
+                ended_at=None,
+            )
 
     def _generate_index(self) -> None:
         """Generate trace index file (automatic on close)."""
@@ -431,26 +339,26 @@ class Tracer:
             )
         self.final_status = status
 
-    def get_stats(self) -> dict[str, Any]:
+    def get_stats(self) -> TraceStats:
         """
         Get execution statistics for trace completion.
 
         Returns:
-            Dictionary with stats fields for /v1/traces/complete
+            TraceStats with execution statistics
         """
         duration_ms: int | None = None
         if self.started_at and self.ended_at:
             delta = self.ended_at - self.started_at
             duration_ms = int(delta.total_seconds() * 1000)
 
-        return {
-            "total_steps": self.total_steps,
-            "total_events": self.total_events,
-            "duration_ms": duration_ms,
-            "final_status": self.final_status,
-            "started_at": self.started_at.isoformat() + "Z" if self.started_at else None,
-            "ended_at": self.ended_at.isoformat() + "Z" if self.ended_at else None,
-        }
+        return TraceStats(
+            total_steps=self.total_steps,
+            total_events=self.total_events,
+            duration_ms=duration_ms,
+            final_status=self.final_status,
+            started_at=self.started_at.isoformat() + "Z" if self.started_at else None,
+            ended_at=self.ended_at.isoformat() + "Z" if self.ended_at else None,
+        )
 
     def _infer_final_status(self) -> None:
         """

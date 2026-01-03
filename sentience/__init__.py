@@ -14,9 +14,6 @@ from .browser import SentienceBrowser
 from .cloud_tracing import CloudTraceSink, SentienceLogger
 from .conversational_agent import ConversationalAgent
 from .expect import expect
-
-# Formatting (v0.12.0+)
-from .formatting import format_snapshot_for_llm
 from .generator import ScriptGenerator, generate
 from .inspector import Inspector, inspect
 from .llm_provider import (
@@ -55,12 +52,14 @@ from .query import find, query
 from .read import read
 from .recorder import Recorder, Trace, TraceStep, record
 from .screenshot import screenshot
+from .sentience_methods import AgentAction, SentienceMethod
 from .snapshot import snapshot
 from .text_search import find_text_rect
 from .tracer_factory import SENTIENCE_API_URL, create_tracer
 from .tracing import JsonlTraceSink, TraceEvent, Tracer, TraceSink
 
 # Utilities (v0.12.0+)
+# Import from utils package (re-exports from submodules for backward compatibility)
 from .utils import (
     canonical_snapshot_loose,
     canonical_snapshot_strict,
@@ -68,6 +67,9 @@ from .utils import (
     save_storage_state,
     sha256_digest,
 )
+
+# Formatting (v0.12.0+)
+from .utils.formatting import format_snapshot_for_llm
 from .wait import wait_for
 
 __version__ = "0.91.1"
@@ -150,4 +152,7 @@ __all__ = [
     "format_snapshot_for_llm",
     # Agent Config (v0.12.0+)
     "AgentConfig",
+    # Enums
+    "SentienceMethod",
+    "AgentAction",
 ]
