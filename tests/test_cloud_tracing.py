@@ -20,6 +20,21 @@ from sentience.tracing import JsonlTraceSink, Tracer
 class TestCloudTraceSink:
     """Test CloudTraceSink functionality."""
 
+    @pytest.fixture(autouse=True)
+    def mock_home_dir(self):
+        """
+        Automatically patch Path.home() to use a temporary directory for all tests.
+        This isolates file operations and prevents FileNotFoundError on CI runners.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_home = Path(tmp_dir)
+
+            # Patch Path.home in the cloud_tracing module
+            with patch("sentience.cloud_tracing.Path.home", return_value=mock_home):
+                # Also patch it in the current test module if used directly
+                with patch("pathlib.Path.home", return_value=mock_home):
+                    yield mock_home
+
     def test_cloud_trace_sink_upload_success(self):
         """Test CloudTraceSink successfully uploads trace to cloud."""
         upload_url = "https://sentience.nyc3.digitaloceanspaces.com/user123/run456/trace.jsonl.gz"
@@ -138,10 +153,7 @@ class TestCloudTraceSink:
             sink = CloudTraceSink(upload_url, run_id=run_id)
             sink.emit({"v": 1, "type": "test", "seq": 1})
 
-            # Ensure file is written before close
-            sink._trace_file.flush()
-            sink._trace_file.close()
-
+            # Close triggers upload (which will fail due to network error)
             # Should not raise, just print warning
             sink.close()
 
@@ -151,10 +163,7 @@ class TestCloudTraceSink:
             # Verify file was preserved
             cache_dir = Path.home() / ".sentience" / "traces" / "pending"
             trace_path = cache_dir / f"{run_id}.jsonl"
-            # File should exist if emit was called (even if close fails)
-            if trace_path.exists():
-                # Cleanup
-                os.remove(trace_path)
+            assert trace_path.exists(), "Trace file should be preserved on network error"
 
     def test_cloud_trace_sink_multiple_close_safe(self):
         """Test CloudTraceSink.close() is idempotent."""
@@ -407,7 +416,9 @@ class TestTracerFactory:
                     mock_put.return_value = Mock(status_code=200)
 
                     run_id = f"test-run-{uuid.uuid4().hex[:8]}"
-                    tracer = create_tracer(api_key="sk_pro_test123", run_id=run_id, upload_trace=True)
+                    tracer = create_tracer(
+                        api_key="sk_pro_test123", run_id=run_id, upload_trace=True
+                    )
 
                     # Verify Pro tier message
                     captured = capsys.readouterr()
