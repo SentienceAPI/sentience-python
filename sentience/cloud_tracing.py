@@ -99,7 +99,8 @@ class CloudTraceSink(TraceSink):
         # Use persistent cache directory instead of temp file
         # This ensures traces survive process crashes
         cache_dir = Path.home() / ".sentience" / "traces" / "pending"
-        TraceFileManager.ensure_directory(cache_dir)
+        # Create directory if it doesn't exist (ensure_directory is for file paths, not dirs)
+        cache_dir.mkdir(parents=True, exist_ok=True)
 
         # Persistent file (survives process crash)
         self._path = cache_dir / f"{run_id}.jsonl"
@@ -146,7 +147,16 @@ class CloudTraceSink(TraceSink):
 
         self._closed = True
 
-        # Close file first
+        # Flush and sync file to disk before closing to ensure all data is written
+        # This is critical on CI systems where file system operations may be slower
+        self._trace_file.flush()
+        try:
+            # Force OS to write buffered data to disk
+            os.fsync(self._trace_file.fileno())
+        except (OSError, AttributeError):
+            # Some file handles don't support fsync (e.g., StringIO in tests)
+            # This is fine - flush() is usually sufficient
+            pass
         self._trace_file.close()
 
         # Ensure file exists and has content before proceeding

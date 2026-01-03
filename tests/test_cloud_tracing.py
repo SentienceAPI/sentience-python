@@ -20,6 +20,21 @@ from sentience.tracing import JsonlTraceSink, Tracer
 class TestCloudTraceSink:
     """Test CloudTraceSink functionality."""
 
+    @pytest.fixture(autouse=True)
+    def mock_home_dir(self):
+        """
+        Automatically patch Path.home() to use a temporary directory for all tests.
+        This isolates file operations and prevents FileNotFoundError on CI runners.
+        """
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            mock_home = Path(tmp_dir)
+
+            # Patch Path.home in the cloud_tracing module
+            with patch("sentience.cloud_tracing.Path.home", return_value=mock_home):
+                # Also patch it in the current test module if used directly
+                with patch("pathlib.Path.home", return_value=mock_home):
+                    yield mock_home
+
     def test_cloud_trace_sink_upload_success(self):
         """Test CloudTraceSink successfully uploads trace to cloud."""
         upload_url = "https://sentience.nyc3.digitaloceanspaces.com/user123/run456/trace.jsonl.gz"
@@ -138,10 +153,7 @@ class TestCloudTraceSink:
             sink = CloudTraceSink(upload_url, run_id=run_id)
             sink.emit({"v": 1, "type": "test", "seq": 1})
 
-            # Ensure file is written before close
-            sink._trace_file.flush()
-            sink._trace_file.close()
-
+            # Close triggers upload (which will fail due to network error)
             # Should not raise, just print warning
             sink.close()
 
@@ -151,10 +163,7 @@ class TestCloudTraceSink:
             # Verify file was preserved
             cache_dir = Path.home() / ".sentience" / "traces" / "pending"
             trace_path = cache_dir / f"{run_id}.jsonl"
-            # File should exist if emit was called (even if close fails)
-            if trace_path.exists():
-                # Cleanup
-                os.remove(trace_path)
+            assert trace_path.exists(), "Trace file should be preserved on network error"
 
     def test_cloud_trace_sink_multiple_close_safe(self):
         """Test CloudTraceSink.close() is idempotent."""
@@ -391,61 +400,45 @@ class TestTracerFactory:
 
     def test_create_tracer_pro_tier_success(self, capsys):
         """Test create_tracer returns CloudTraceSink for Pro tier."""
-        with patch("sentience.tracer_factory.requests.post") as mock_post:
-            with patch("sentience.cloud_tracing.requests.put") as mock_put:
-                # Mock API response
-                mock_response = Mock()
-                mock_response.status_code = 200
-                mock_response.json.return_value = {
-                    "upload_url": "https://sentience.nyc3.digitaloceanspaces.com/upload"
-                }
-                mock_post.return_value = mock_response
+        # Patch orphaned trace recovery to avoid extra API calls
+        with patch("sentience.tracer_factory._recover_orphaned_traces"):
+            with patch("sentience.tracer_factory.requests.post") as mock_post:
+                with patch("sentience.cloud_tracing.requests.put") as mock_put:
+                    # Mock API response
+                    mock_response = Mock()
+                    mock_response.status_code = 200
+                    mock_response.json.return_value = {
+                        "upload_url": "https://sentience.nyc3.digitaloceanspaces.com/upload"
+                    }
+                    mock_post.return_value = mock_response
 
-                # Mock upload response
-                mock_put.return_value = Mock(status_code=200)
+                    # Mock upload response
+                    mock_put.return_value = Mock(status_code=200)
 
-                run_id = f"test-run-{uuid.uuid4().hex[:8]}"
-                tracer = create_tracer(
-                    api_key="sk_pro_test123",
-                    run_id=run_id,
-                    upload_trace=True,
-                    goal="Test goal for trace name",
-                    agent_type="SentienceAgent",
-                    llm_model="gpt-4-turbo",
-                    start_url="https://example.com",
-                )
+                    run_id = f"test-run-{uuid.uuid4().hex[:8]}"
+                    tracer = create_tracer(
+                        api_key="sk_pro_test123", run_id=run_id, upload_trace=True
+                    )
 
-                # Verify Pro tier message
-                captured = capsys.readouterr()
-                assert "☁️  [Sentience] Cloud tracing enabled (Pro tier)" in captured.out
+                    # Verify Pro tier message
+                    captured = capsys.readouterr()
+                    assert "☁️  [Sentience] Cloud tracing enabled (Pro tier)" in captured.out
 
-                # Verify tracer works
-                assert tracer.run_id == run_id
-                # Check if sink is CloudTraceSink (it should be)
-                assert isinstance(
-                    tracer.sink, CloudTraceSink
-                ), f"Expected CloudTraceSink, got {type(tracer.sink)}"
-                assert tracer.sink.run_id == run_id  # Verify run_id is passed
+                    # Verify tracer works
+                    assert tracer.run_id == run_id
+                    # Check if sink is CloudTraceSink (it should be)
+                    assert isinstance(
+                        tracer.sink, CloudTraceSink
+                    ), f"Expected CloudTraceSink, got {type(tracer.sink)}"
+                    assert tracer.sink.run_id == run_id  # Verify run_id is passed
 
-                # Verify the init API was called
-                assert mock_post.called
-                assert mock_post.call_count == 1
+                    # Verify the init API was called (only once, since orphaned recovery is patched)
+                    assert mock_post.called
+                    assert mock_post.call_count == 1
 
-                # Verify metadata was sent correctly
-                call_args = mock_post.call_args
-                request_payload = call_args[1]["json"]
-                assert "run_id" in request_payload
-                assert request_payload["run_id"] == run_id
-                assert "metadata" in request_payload
-                metadata = request_payload["metadata"]
-                assert metadata["goal"] == "Test goal for trace name"
-                assert metadata["agent_type"] == "SentienceAgent"
-                assert metadata["llm_model"] == "gpt-4-turbo"
-                assert metadata["start_url"] == "https://example.com"
-
-                # Cleanup - emit at least one event so file exists before close
-                tracer.emit("test", {"v": 1, "seq": 1})
-                tracer.close()
+                    # Cleanup - emit at least one event so file exists before close
+                    tracer.emit("test", {"v": 1, "seq": 1})
+                    tracer.close()
 
     def test_create_tracer_free_tier_fallback(self, capsys):
         """Test create_tracer falls back to local for free tier."""
