@@ -193,8 +193,8 @@ def test_execute_navigate_step():
 
     result = agent._execute_step(step)
 
-    assert result["success"] is True
-    assert result["action"] == "NAVIGATE"
+    assert result.success is True
+    assert result.action == "NAVIGATE"
     browser.page.goto.assert_called_once()
     # Should have added https://
     assert "https://google.com" in str(browser.page.goto.call_args)
@@ -212,10 +212,10 @@ def test_execute_find_and_click_step():
         "parameters": {"element_description": "button"},
     }
 
-    # Patch at the agent module level where it's imported
+    # Patch at the action_executor level where click is actually called
     with (
         patch("sentience.agent.snapshot") as mock_snapshot,
-        patch("sentience.agent.click") as mock_click,
+        patch("sentience.action_executor.click") as mock_click,
     ):
         from sentience.models import ActionResult
 
@@ -224,7 +224,7 @@ def test_execute_find_and_click_step():
 
         result = agent._execute_step(step)
 
-        assert result["action"] == "FIND_AND_CLICK"
+        assert result.action == "FIND_AND_CLICK"
         # Technical agent should have been called
         assert len(agent.technical_agent.history) > 0
 
@@ -241,10 +241,10 @@ def test_execute_find_and_type_step():
         "parameters": {"element_description": "search box", "text": "magic mouse"},
     }
 
-    # Patch at the agent module level where it's imported
+    # Patch at the action_executor level where type_text is actually called
     with (
         patch("sentience.agent.snapshot") as mock_snapshot,
-        patch("sentience.agent.type_text") as mock_type,
+        patch("sentience.action_executor.type_text") as mock_type,
     ):
         from sentience.models import ActionResult
 
@@ -253,8 +253,8 @@ def test_execute_find_and_type_step():
 
         result = agent._execute_step(step)
 
-        assert result["action"] == "FIND_AND_TYPE"
-        assert result["data"]["text"] == "magic mouse"
+        assert result.action == "FIND_AND_TYPE"
+        assert result.data["text"] == "magic mouse"
 
 
 def test_execute_wait_step():
@@ -271,9 +271,9 @@ def test_execute_wait_step():
 
     result = agent._execute_step(step)
 
-    assert result["success"] is True
-    assert result["action"] == "WAIT"
-    assert result["data"]["duration"] == 0.1
+    assert result.success is True
+    assert result.action == "WAIT"
+    assert result.data["duration"] == 0.1
 
 
 def test_execute_extract_info_step():
@@ -298,9 +298,13 @@ def test_execute_extract_info_step():
 
         result = agent._execute_step(step)
 
-        assert result["success"] is True
-        assert result["action"] == "EXTRACT_INFO"
-        assert result["data"]["extracted"]["found"] is True
+        assert result.success is True
+        assert result.action == "EXTRACT_INFO"
+        extracted = result.data["extracted"]
+        if isinstance(extracted, dict):
+            assert extracted["found"] is True
+        else:
+            assert extracted.found is True
 
 
 def test_execute_verify_step():
@@ -323,9 +327,9 @@ def test_execute_verify_step():
 
         result = agent._execute_step(step)
 
-        assert result["success"] is True
-        assert result["action"] == "VERIFY"
-        assert result["data"]["verified"] is True
+        assert result.success is True
+        assert result.action == "VERIFY"
+        assert result.data["verified"] is True
 
 
 def test_synthesize_response():

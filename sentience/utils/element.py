@@ -1,7 +1,7 @@
 """
-Digest utilities for snapshot canonicalization and hashing.
+Element manipulation and digest utilities for Sentience SDK.
 
-Provides functions to compute stable digests of snapshots for determinism diff.
+Provides functions to compute stable digests of snapshots for deterministic diff.
 Two digest strategies:
 - strict: includes structure + normalized text
 - loose: structure only (no text) - detects layout changes vs content changes
@@ -11,10 +11,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any, Optional
-
-from playwright.sync_api import BrowserContext
 
 
 @dataclass
@@ -258,39 +255,3 @@ def compute_snapshot_digests(elements: list[dict[str, Any]]) -> dict[str, str]:
         "strict": sha256_digest(canonical_strict),
         "loose": sha256_digest(canonical_loose),
     }
-
-
-def save_storage_state(context: BrowserContext, file_path: str | Path) -> None:
-    """
-    Save current browser storage state (cookies + localStorage) to a file.
-
-    This is useful for capturing a logged-in session to reuse later.
-
-    Args:
-        context: Playwright BrowserContext
-        file_path: Path to save the storage state JSON file
-
-    Example:
-        ```python
-        from sentience import SentienceBrowser, save_storage_state
-
-        browser = SentienceBrowser()
-        browser.start()
-
-        # User logs in manually or via agent
-        browser.goto("https://example.com")
-        # ... login happens ...
-
-        # Save session for later
-        save_storage_state(browser.context, "auth.json")
-        ```
-
-    Raises:
-        IOError: If file cannot be written
-    """
-    storage_state = context.storage_state()
-    file_path_obj = Path(file_path)
-    file_path_obj.parent.mkdir(parents=True, exist_ok=True)
-    with open(file_path_obj, "w") as f:
-        json.dump(storage_state, f, indent=2)
-    print(f"✅ [Sentience] Saved storage state to {file_path_obj}")

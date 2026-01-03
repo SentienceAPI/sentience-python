@@ -5,14 +5,15 @@ Implements observe-think-act loop for natural language commands
 
 import asyncio
 import hashlib
-import re
 import time
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Union
 
-from .actions import click, click_async, press, press_async, type_text, type_text_async
+from .action_executor import ActionExecutor
 from .agent_config import AgentConfig
 from .base_agent import BaseAgent, BaseAgentAsync
 from .browser import AsyncSentienceBrowser, SentienceBrowser
+from .element_filter import ElementFilter
+from .llm_interaction_handler import LLMInteractionHandler
 from .llm_provider import LLMProvider, LLMResponse
 from .models import (
     ActionHistory,
@@ -24,10 +25,44 @@ from .models import (
     SnapshotOptions,
     TokenStats,
 )
+from .protocols import AsyncBrowserProtocol, BrowserProtocol
 from .snapshot import snapshot, snapshot_async
+from .snapshot_diff import SnapshotDiff
+from .trace_event_builder import TraceEventBuilder
 
 if TYPE_CHECKING:
     from .tracing import Tracer
+
+
+def _safe_tracer_call(
+    tracer: Optional["Tracer"], method_name: str, verbose: bool, *args, **kwargs
+) -> None:
+    """
+    Safely call tracer method, catching and logging errors without breaking execution.
+
+    Args:
+        tracer: Tracer instance or None
+        method_name: Name of tracer method to call (e.g., "emit", "emit_error")
+        verbose: Whether to print error messages
+        *args: Positional arguments for the tracer method
+        **kwargs: Keyword arguments for the tracer method
+    """
+    if not tracer:
+        return
+    try:
+        method = getattr(tracer, method_name)
+        if args and kwargs:
+            method(*args, **kwargs)
+        elif args:
+            method(*args)
+        elif kwargs:
+            method(**kwargs)
+        else:
+            method()
+    except Exception as tracer_error:
+        # Tracer errors should not break agent execution
+        if verbose:
+            print(f"⚠️  Tracer error (non-fatal): {tracer_error}")
 
 
 class SentienceAgent(BaseAgent):
@@ -56,7 +91,7 @@ class SentienceAgent(BaseAgent):
 
     def __init__(
         self,
-        browser: SentienceBrowser,
+        browser: SentienceBrowser | BrowserProtocol,
         llm: LLMProvider,
         default_snapshot_limit: int = 50,
         verbose: bool = True,
@@ -67,7 +102,8 @@ class SentienceAgent(BaseAgent):
         Initialize Sentience Agent
 
         Args:
-            browser: SentienceBrowser instance
+            browser: SentienceBrowser instance or BrowserProtocol-compatible object
+                    (for testing, can use mock objects that implement BrowserProtocol)
             llm: LLM provider (OpenAIProvider, AnthropicProvider, etc.)
             default_snapshot_limit: Default maximum elements to include in context (default: 50)
             verbose: Print execution logs (default: True)
@@ -80,6 +116,10 @@ class SentienceAgent(BaseAgent):
         self.verbose = verbose
         self.tracer = tracer
         self.config = config or AgentConfig()
+
+        # Initialize handlers
+        self.llm_handler = LLMInteractionHandler(llm)
+        self.action_executor = ActionExecutor(browser)
 
         # Screenshot sequence counter
         # Execution history
@@ -95,6 +135,9 @@ class SentienceAgent(BaseAgent):
 
         # Step counter for tracing
         self._step_count = 0
+
+        # Previous snapshot for diff detection
+        self._previous_snapshot: Snapshot | None = None
 
     def _compute_hash(self, text: str) -> str:
         """Compute SHA256 hash of text."""
@@ -151,7 +194,10 @@ class SentienceAgent(BaseAgent):
         # Emit step_start trace event if tracer is enabled
         if self.tracer:
             pre_url = self.browser.page.url if self.browser.page else None
-            self.tracer.emit_step_start(
+            _safe_tracer_call(
+                self.tracer,
+                "emit_step_start",
+                self.verbose,
                 step_id=step_id,
                 step_index=self._step_count,
                 goal=goal,
@@ -193,22 +239,31 @@ class SentienceAgent(BaseAgent):
                 if snap.status != "success":
                     raise RuntimeError(f"Snapshot failed: {snap.error}")
 
+                # Compute diff_status by comparing with previous snapshot
+                elements_with_diff = SnapshotDiff.compute_diff_status(snap, self._previous_snapshot)
+
+                # Create snapshot with diff_status populated
+                snap_with_diff = Snapshot(
+                    status=snap.status,
+                    timestamp=snap.timestamp,
+                    url=snap.url,
+                    viewport=snap.viewport,
+                    elements=elements_with_diff,
+                    screenshot=snap.screenshot,
+                    screenshot_format=snap.screenshot_format,
+                    error=snap.error,
+                )
+
+                # Update previous snapshot for next comparison
+                self._previous_snapshot = snap
+
                 # Apply element filtering based on goal
-                filtered_elements = self.filter_elements(snap, goal)
+                filtered_elements = self.filter_elements(snap_with_diff, goal)
 
                 # Emit snapshot trace event if tracer is enabled
                 if self.tracer:
-                    # Include ALL elements with full data for DOM tree display
-                    # Use snap.elements (all elements) not filtered_elements
-                    elements_data = [el.model_dump() for el in snap.elements]
-
-                    # Build snapshot event data
-                    snapshot_data = {
-                        "url": snap.url,
-                        "element_count": len(snap.elements),
-                        "timestamp": snap.timestamp,
-                        "elements": elements_data,  # Full element data for DOM tree
-                    }
+                    # Build snapshot event data (use snap_with_diff to include diff_status)
+                    snapshot_data = TraceEventBuilder.build_snapshot_event(snap_with_diff)
 
                     # Always include screenshot in trace event for studio viewer compatibility
                     # CloudTraceSink will extract and upload screenshots separately, then remove
@@ -229,33 +284,39 @@ class SentienceAgent(BaseAgent):
                         if snap.screenshot_format:
                             snapshot_data["screenshot_format"] = snap.screenshot_format
 
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "snapshot",
                         snapshot_data,
                         step_id=step_id,
                     )
 
-                # Create filtered snapshot
+                # Create filtered snapshot (use snap_with_diff to preserve metadata)
                 filtered_snap = Snapshot(
-                    status=snap.status,
-                    timestamp=snap.timestamp,
-                    url=snap.url,
-                    viewport=snap.viewport,
+                    status=snap_with_diff.status,
+                    timestamp=snap_with_diff.timestamp,
+                    url=snap_with_diff.url,
+                    viewport=snap_with_diff.viewport,
                     elements=filtered_elements,
-                    screenshot=snap.screenshot,
-                    screenshot_format=snap.screenshot_format,
-                    error=snap.error,
+                    screenshot=snap_with_diff.screenshot,
+                    screenshot_format=snap_with_diff.screenshot_format,
+                    error=snap_with_diff.error,
                 )
 
                 # 2. GROUND: Format elements for LLM context
-                context = self._build_context(filtered_snap, goal)
+                context = self.llm_handler.build_context(filtered_snap, goal)
 
                 # 3. THINK: Query LLM for next action
-                llm_response = self._query_llm(context, goal)
+                llm_response = self.llm_handler.query_llm(context, goal)
 
                 # Emit LLM query trace event if tracer is enabled
                 if self.tracer:
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "llm_query",
                         {
                             "prompt_tokens": llm_response.prompt_tokens,
@@ -273,10 +334,10 @@ class SentienceAgent(BaseAgent):
                 self._track_tokens(goal, llm_response)
 
                 # Parse action from LLM response
-                action_str = self._extract_action_from_response(llm_response.content)
+                action_str = self.llm_handler.extract_action(llm_response.content)
 
                 # 4. EXECUTE: Parse and run action
-                result_dict = self._execute_action(action_str, filtered_snap)
+                result_dict = self.action_executor.execute(action_str, filtered_snap)
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
@@ -316,7 +377,10 @@ class SentienceAgent(BaseAgent):
                         for el in filtered_snap.elements[:50]
                     ]
 
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "action",
                         {
                             "action": result.action,
@@ -423,32 +487,41 @@ class SentienceAgent(BaseAgent):
                     }
 
                     # Build complete step_end event
-                    step_end_data = {
-                        "v": 1,
-                        "step_id": step_id,
-                        "step_index": self._step_count,
-                        "goal": goal,
-                        "attempt": attempt,
-                        "pre": {
-                            "url": pre_url,
-                            "snapshot_digest": snapshot_digest,
-                        },
-                        "llm": llm_data,
-                        "exec": exec_data,
-                        "post": {
-                            "url": post_url,
-                        },
-                        "verify": verify_data,
-                    }
+                    step_end_data = TraceEventBuilder.build_step_end_event(
+                        step_id=step_id,
+                        step_index=self._step_count,
+                        goal=goal,
+                        attempt=attempt,
+                        pre_url=pre_url,
+                        post_url=post_url,
+                        snapshot_digest=snapshot_digest,
+                        llm_data=llm_data,
+                        exec_data=exec_data,
+                        verify_data=verify_data,
+                    )
 
-                    self.tracer.emit("step_end", step_end_data, step_id=step_id)
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
+                        "step_end",
+                        step_end_data,
+                        step_id=step_id,
+                    )
 
                 return result
 
             except Exception as e:
                 # Emit error trace event if tracer is enabled
                 if self.tracer:
-                    self.tracer.emit_error(step_id=step_id, error=str(e), attempt=attempt)
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit_error",
+                        self.verbose,
+                        step_id=step_id,
+                        error=str(e),
+                        attempt=attempt,
+                    )
 
                 if attempt < max_retries:
                     if self.verbose:
@@ -476,187 +549,6 @@ class SentienceAgent(BaseAgent):
                         }
                     )
                     raise RuntimeError(f"Failed after {max_retries} retries: {e}")
-
-    def _build_context(self, snap: Snapshot, goal: str) -> str:
-        """
-        Convert snapshot elements to token-efficient prompt string
-
-        Format: [ID] <role> "text" {cues} @ (x,y) (Imp:score)
-
-        Args:
-            snap: Snapshot object
-            goal: User goal (for context)
-
-        Returns:
-            Formatted element context string
-        """
-        lines = []
-        # Note: elements are already filtered by filter_elements() in act()
-        for el in snap.elements:
-            # Extract visual cues
-            cues = []
-            if el.visual_cues.is_primary:
-                cues.append("PRIMARY")
-            if el.visual_cues.is_clickable:
-                cues.append("CLICKABLE")
-            if el.visual_cues.background_color_name:
-                cues.append(f"color:{el.visual_cues.background_color_name}")
-
-            # Format element line
-            cues_str = f" {{{','.join(cues)}}}" if cues else ""
-            text_preview = (
-                (el.text[:50] + "...") if el.text and len(el.text) > 50 else (el.text or "")
-            )
-
-            lines.append(
-                f'[{el.id}] <{el.role}> "{text_preview}"{cues_str} '
-                f"@ ({int(el.bbox.x)},{int(el.bbox.y)}) (Imp:{el.importance})"
-            )
-
-        return "\n".join(lines)
-
-    def _extract_action_from_response(self, response: str) -> str:
-        """
-        Extract action command from LLM response, handling cases where
-        the LLM adds extra explanation despite instructions.
-
-        Args:
-            response: Raw LLM response text
-
-        Returns:
-            Cleaned action command string
-        """
-        import re
-
-        # Remove markdown code blocks if present
-        response = re.sub(r"```[\w]*\n?", "", response)
-        response = response.strip()
-
-        # Try to find action patterns in the response
-        # Pattern matches: CLICK(123), TYPE(123, "text"), PRESS("key"), FINISH()
-        action_pattern = r'(CLICK\s*\(\s*\d+\s*\)|TYPE\s*\(\s*\d+\s*,\s*["\'].*?["\']\s*\)|PRESS\s*\(\s*["\'].*?["\']\s*\)|FINISH\s*\(\s*\))'
-
-        match = re.search(action_pattern, response, re.IGNORECASE)
-        if match:
-            return match.group(1)
-
-        # If no pattern match, return the original response (will likely fail parsing)
-        return response
-
-    def _query_llm(self, dom_context: str, goal: str) -> LLMResponse:
-        """
-        Query LLM with standardized prompt template
-
-        Args:
-            dom_context: Formatted element context
-            goal: User goal
-
-        Returns:
-            LLMResponse from LLM provider
-        """
-        system_prompt = f"""You are an AI web automation agent.
-
-GOAL: {goal}
-
-VISIBLE ELEMENTS (sorted by importance):
-{dom_context}
-
-VISUAL CUES EXPLAINED:
-- {{PRIMARY}}: Main call-to-action element on the page
-- {{CLICKABLE}}: Element is clickable
-- {{color:X}}: Background color name
-
-CRITICAL RESPONSE FORMAT:
-You MUST respond with ONLY ONE of these exact action formats:
-- CLICK(id) - Click element by ID
-- TYPE(id, "text") - Type text into element
-- PRESS("key") - Press keyboard key (Enter, Escape, Tab, ArrowDown, etc)
-- FINISH() - Task complete
-
-DO NOT include any explanation, reasoning, or natural language.
-DO NOT use markdown formatting or code blocks.
-DO NOT say "The next step is..." or anything similar.
-
-CORRECT Examples:
-CLICK(42)
-TYPE(15, "magic mouse")
-PRESS("Enter")
-FINISH()
-
-INCORRECT Examples (DO NOT DO THIS):
-"The next step is to click..."
-"I will type..."
-```CLICK(42)```
-"""
-
-        user_prompt = "Return the single action command:"
-
-        return self.llm.generate(system_prompt, user_prompt, temperature=0.0)
-
-    def _execute_action(self, action_str: str, snap: Snapshot) -> dict[str, Any]:
-        """
-        Parse action string and execute SDK call
-
-        Args:
-            action_str: Action string from LLM (e.g., "CLICK(42)")
-            snap: Current snapshot (for context)
-
-        Returns:
-            Execution result dictionary
-        """
-        # Parse CLICK(42)
-        if match := re.match(r"CLICK\s*\(\s*(\d+)\s*\)", action_str, re.IGNORECASE):
-            element_id = int(match.group(1))
-            result = click(self.browser, element_id)
-            return {
-                "success": result.success,
-                "action": "click",
-                "element_id": element_id,
-                "outcome": result.outcome,
-                "url_changed": result.url_changed,
-            }
-
-        # Parse TYPE(42, "hello world")
-        elif match := re.match(
-            r'TYPE\s*\(\s*(\d+)\s*,\s*["\']([^"\']*)["\']\s*\)',
-            action_str,
-            re.IGNORECASE,
-        ):
-            element_id = int(match.group(1))
-            text = match.group(2)
-            result = type_text(self.browser, element_id, text)
-            return {
-                "success": result.success,
-                "action": "type",
-                "element_id": element_id,
-                "text": text,
-                "outcome": result.outcome,
-            }
-
-        # Parse PRESS("Enter")
-        elif match := re.match(r'PRESS\s*\(\s*["\']([^"\']+)["\']\s*\)', action_str, re.IGNORECASE):
-            key = match.group(1)
-            result = press(self.browser, key)
-            return {
-                "success": result.success,
-                "action": "press",
-                "key": key,
-                "outcome": result.outcome,
-            }
-
-        # Parse FINISH()
-        elif re.match(r"FINISH\s*\(\s*\)", action_str, re.IGNORECASE):
-            return {
-                "success": True,
-                "action": "finish",
-                "message": "Task marked as complete",
-            }
-
-        else:
-            raise ValueError(
-                f"Unknown action format: {action_str}\n"
-                f'Expected: CLICK(id), TYPE(id, "text"), PRESS("key"), or FINISH()'
-            )
 
     def _track_tokens(self, goal: str, llm_response: LLMResponse):
         """
@@ -721,8 +613,8 @@ INCORRECT Examples (DO NOT DO THIS):
         """
         Filter elements from snapshot based on goal context.
 
-        This default implementation applies goal-based keyword matching to boost
-        relevant elements and filters out irrelevant ones.
+        This implementation uses ElementFilter to apply goal-based keyword matching
+        to boost relevant elements and filters out irrelevant ones.
 
         Args:
             snapshot: Current page snapshot
@@ -731,76 +623,7 @@ INCORRECT Examples (DO NOT DO THIS):
         Returns:
             Filtered list of elements
         """
-        elements = snapshot.elements
-
-        # If no goal provided, return all elements (up to limit)
-        if not goal:
-            return elements[: self.default_snapshot_limit]
-
-        goal_lower = goal.lower()
-
-        # Extract keywords from goal
-        keywords = self._extract_keywords(goal_lower)
-
-        # Boost elements matching goal keywords
-        scored_elements = []
-        for el in elements:
-            score = el.importance
-
-            # Boost if element text matches goal
-            if el.text and any(kw in el.text.lower() for kw in keywords):
-                score += 0.3
-
-            # Boost if role matches goal intent
-            if "click" in goal_lower and el.visual_cues.is_clickable:
-                score += 0.2
-            if "type" in goal_lower and el.role in ["textbox", "searchbox"]:
-                score += 0.2
-            if "search" in goal_lower:
-                # Filter out non-interactive elements for search tasks
-                if el.role in ["link", "img"] and not el.visual_cues.is_primary:
-                    score -= 0.5
-
-            scored_elements.append((score, el))
-
-        # Re-sort by boosted score
-        scored_elements.sort(key=lambda x: x[0], reverse=True)
-        elements = [el for _, el in scored_elements]
-
-        return elements[: self.default_snapshot_limit]
-
-    def _extract_keywords(self, text: str) -> list[str]:
-        """
-        Extract meaningful keywords from goal text
-
-        Args:
-            text: Text to extract keywords from
-
-        Returns:
-            List of keywords
-        """
-        stopwords = {
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "in",
-            "on",
-            "at",
-            "to",
-            "for",
-            "of",
-            "with",
-            "by",
-            "from",
-            "as",
-            "is",
-            "was",
-        }
-        words = text.split()
-        return [w for w in words if w not in stopwords and len(w) > 2]
+        return ElementFilter.filter_by_goal(snapshot, goal, self.default_snapshot_limit)
 
 
 class SentienceAgentAsync(BaseAgentAsync):
@@ -853,6 +676,10 @@ class SentienceAgentAsync(BaseAgentAsync):
         self.tracer = tracer
         self.config = config or AgentConfig()
 
+        # Initialize handlers
+        self.llm_handler = LLMInteractionHandler(llm)
+        self.action_executor = ActionExecutor(browser)
+
         # Screenshot sequence counter
         # Execution history
         self.history: list[dict[str, Any]] = []
@@ -867,6 +694,9 @@ class SentienceAgentAsync(BaseAgentAsync):
 
         # Step counter for tracing
         self._step_count = 0
+
+        # Previous snapshot for diff detection
+        self._previous_snapshot: Snapshot | None = None
 
     def _compute_hash(self, text: str) -> str:
         """Compute SHA256 hash of text."""
@@ -920,7 +750,10 @@ class SentienceAgentAsync(BaseAgentAsync):
         # Emit step_start trace event if tracer is enabled
         if self.tracer:
             pre_url = self.browser.page.url if self.browser.page else None
-            self.tracer.emit_step_start(
+            _safe_tracer_call(
+                self.tracer,
+                "emit_step_start",
+                self.verbose,
                 step_id=step_id,
                 step_index=self._step_count,
                 goal=goal,
@@ -965,22 +798,31 @@ class SentienceAgentAsync(BaseAgentAsync):
                 if snap.status != "success":
                     raise RuntimeError(f"Snapshot failed: {snap.error}")
 
+                # Compute diff_status by comparing with previous snapshot
+                elements_with_diff = SnapshotDiff.compute_diff_status(snap, self._previous_snapshot)
+
+                # Create snapshot with diff_status populated
+                snap_with_diff = Snapshot(
+                    status=snap.status,
+                    timestamp=snap.timestamp,
+                    url=snap.url,
+                    viewport=snap.viewport,
+                    elements=elements_with_diff,
+                    screenshot=snap.screenshot,
+                    screenshot_format=snap.screenshot_format,
+                    error=snap.error,
+                )
+
+                # Update previous snapshot for next comparison
+                self._previous_snapshot = snap
+
                 # Apply element filtering based on goal
-                filtered_elements = self.filter_elements(snap, goal)
+                filtered_elements = self.filter_elements(snap_with_diff, goal)
 
                 # Emit snapshot trace event if tracer is enabled
                 if self.tracer:
-                    # Include ALL elements with full data for DOM tree display
-                    # Use snap.elements (all elements) not filtered_elements
-                    elements_data = [el.model_dump() for el in snap.elements]
-
-                    # Build snapshot event data
-                    snapshot_data = {
-                        "url": snap.url,
-                        "element_count": len(snap.elements),
-                        "timestamp": snap.timestamp,
-                        "elements": elements_data,  # Full element data for DOM tree
-                    }
+                    # Build snapshot event data (use snap_with_diff to include diff_status)
+                    snapshot_data = TraceEventBuilder.build_snapshot_event(snap_with_diff)
 
                     # Always include screenshot in trace event for studio viewer compatibility
                     # CloudTraceSink will extract and upload screenshots separately, then remove
@@ -1001,33 +843,39 @@ class SentienceAgentAsync(BaseAgentAsync):
                         if snap.screenshot_format:
                             snapshot_data["screenshot_format"] = snap.screenshot_format
 
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "snapshot",
                         snapshot_data,
                         step_id=step_id,
                     )
 
-                # Create filtered snapshot
+                # Create filtered snapshot (use snap_with_diff to preserve metadata)
                 filtered_snap = Snapshot(
-                    status=snap.status,
-                    timestamp=snap.timestamp,
-                    url=snap.url,
-                    viewport=snap.viewport,
+                    status=snap_with_diff.status,
+                    timestamp=snap_with_diff.timestamp,
+                    url=snap_with_diff.url,
+                    viewport=snap_with_diff.viewport,
                     elements=filtered_elements,
-                    screenshot=snap.screenshot,
-                    screenshot_format=snap.screenshot_format,
-                    error=snap.error,
+                    screenshot=snap_with_diff.screenshot,
+                    screenshot_format=snap_with_diff.screenshot_format,
+                    error=snap_with_diff.error,
                 )
 
                 # 2. GROUND: Format elements for LLM context
-                context = self._build_context(filtered_snap, goal)
+                context = self.llm_handler.build_context(filtered_snap, goal)
 
                 # 3. THINK: Query LLM for next action
-                llm_response = self._query_llm(context, goal)
+                llm_response = self.llm_handler.query_llm(context, goal)
 
                 # Emit LLM query trace event if tracer is enabled
                 if self.tracer:
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "llm_query",
                         {
                             "prompt_tokens": llm_response.prompt_tokens,
@@ -1045,10 +893,10 @@ class SentienceAgentAsync(BaseAgentAsync):
                 self._track_tokens(goal, llm_response)
 
                 # Parse action from LLM response
-                action_str = self._extract_action_from_response(llm_response.content)
+                action_str = self.llm_handler.extract_action(llm_response.content)
 
                 # 4. EXECUTE: Parse and run action
-                result_dict = await self._execute_action(action_str, filtered_snap)
+                result_dict = await self.action_executor.execute_async(action_str, filtered_snap)
 
                 duration_ms = int((time.time() - start_time) * 1000)
 
@@ -1088,7 +936,10 @@ class SentienceAgentAsync(BaseAgentAsync):
                         for el in filtered_snap.elements[:50]
                     ]
 
-                    self.tracer.emit(
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
                         "action",
                         {
                             "action": result.action,
@@ -1195,32 +1046,41 @@ class SentienceAgentAsync(BaseAgentAsync):
                     }
 
                     # Build complete step_end event
-                    step_end_data = {
-                        "v": 1,
-                        "step_id": step_id,
-                        "step_index": self._step_count,
-                        "goal": goal,
-                        "attempt": attempt,
-                        "pre": {
-                            "url": pre_url,
-                            "snapshot_digest": snapshot_digest,
-                        },
-                        "llm": llm_data,
-                        "exec": exec_data,
-                        "post": {
-                            "url": post_url,
-                        },
-                        "verify": verify_data,
-                    }
+                    step_end_data = TraceEventBuilder.build_step_end_event(
+                        step_id=step_id,
+                        step_index=self._step_count,
+                        goal=goal,
+                        attempt=attempt,
+                        pre_url=pre_url,
+                        post_url=post_url,
+                        snapshot_digest=snapshot_digest,
+                        llm_data=llm_data,
+                        exec_data=exec_data,
+                        verify_data=verify_data,
+                    )
 
-                    self.tracer.emit("step_end", step_end_data, step_id=step_id)
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit",
+                        self.verbose,
+                        "step_end",
+                        step_end_data,
+                        step_id=step_id,
+                    )
 
                 return result
 
             except Exception as e:
                 # Emit error trace event if tracer is enabled
                 if self.tracer:
-                    self.tracer.emit_error(step_id=step_id, error=str(e), attempt=attempt)
+                    _safe_tracer_call(
+                        self.tracer,
+                        "emit_error",
+                        self.verbose,
+                        step_id=step_id,
+                        error=str(e),
+                        attempt=attempt,
+                    )
 
                 if attempt < max_retries:
                     if self.verbose:
@@ -1248,156 +1108,6 @@ class SentienceAgentAsync(BaseAgentAsync):
                         }
                     )
                     raise RuntimeError(f"Failed after {max_retries} retries: {e}")
-
-    def _build_context(self, snap: Snapshot, goal: str) -> str:
-        """Convert snapshot elements to token-efficient prompt string (same as sync version)"""
-        lines = []
-        # Note: elements are already filtered by filter_elements() in act()
-        for el in snap.elements:
-            # Extract visual cues
-            cues = []
-            if el.visual_cues.is_primary:
-                cues.append("PRIMARY")
-            if el.visual_cues.is_clickable:
-                cues.append("CLICKABLE")
-            if el.visual_cues.background_color_name:
-                cues.append(f"color:{el.visual_cues.background_color_name}")
-
-            # Format element line
-            cues_str = f" {{{','.join(cues)}}}" if cues else ""
-            text_preview = (
-                (el.text[:50] + "...") if el.text and len(el.text) > 50 else (el.text or "")
-            )
-
-            lines.append(
-                f'[{el.id}] <{el.role}> "{text_preview}"{cues_str} '
-                f"@ ({int(el.bbox.x)},{int(el.bbox.y)}) (Imp:{el.importance})"
-            )
-
-        return "\n".join(lines)
-
-    def _extract_action_from_response(self, response: str) -> str:
-        """Extract action command from LLM response (same as sync version)"""
-        # Remove markdown code blocks if present
-        response = re.sub(r"```[\w]*\n?", "", response)
-        response = response.strip()
-
-        # Try to find action patterns in the response
-        # Pattern matches: CLICK(123), TYPE(123, "text"), PRESS("key"), FINISH()
-        action_pattern = r'(CLICK\s*\(\s*\d+\s*\)|TYPE\s*\(\s*\d+\s*,\s*["\'].*?["\']\s*\)|PRESS\s*\(\s*["\'].*?["\']\s*\)|FINISH\s*\(\s*\))'
-
-        match = re.search(action_pattern, response, re.IGNORECASE)
-        if match:
-            return match.group(1)
-
-        # If no pattern match, return the original response (will likely fail parsing)
-        return response
-
-    def _query_llm(self, dom_context: str, goal: str) -> LLMResponse:
-        """Query LLM with standardized prompt template (same as sync version)"""
-        system_prompt = f"""You are an AI web automation agent.
-
-GOAL: {goal}
-
-VISIBLE ELEMENTS (sorted by importance):
-{dom_context}
-
-VISUAL CUES EXPLAINED:
-- {{PRIMARY}}: Main call-to-action element on the page
-- {{CLICKABLE}}: Element is clickable
-- {{color:X}}: Background color name
-
-CRITICAL RESPONSE FORMAT:
-You MUST respond with ONLY ONE of these exact action formats:
-- CLICK(id) - Click element by ID
-- TYPE(id, "text") - Type text into element
-- PRESS("key") - Press keyboard key (Enter, Escape, Tab, ArrowDown, etc)
-- FINISH() - Task complete
-
-DO NOT include any explanation, reasoning, or natural language.
-DO NOT use markdown formatting or code blocks.
-DO NOT say "The next step is..." or anything similar.
-
-CORRECT Examples:
-CLICK(42)
-TYPE(15, "magic mouse")
-PRESS("Enter")
-FINISH()
-
-INCORRECT Examples (DO NOT DO THIS):
-"The next step is to click..."
-"I will type..."
-```CLICK(42)```
-"""
-
-        user_prompt = "Return the single action command:"
-
-        return self.llm.generate(system_prompt, user_prompt, temperature=0.0)
-
-    async def _execute_action(self, action_str: str, snap: Snapshot) -> dict[str, Any]:
-        """
-        Parse action string and execute SDK call (async)
-
-        Args:
-            action_str: Action string from LLM (e.g., "CLICK(42)")
-            snap: Current snapshot (for context)
-
-        Returns:
-            Execution result dictionary
-        """
-        # Parse CLICK(42)
-        if match := re.match(r"CLICK\s*\(\s*(\d+)\s*\)", action_str, re.IGNORECASE):
-            element_id = int(match.group(1))
-            result = await click_async(self.browser, element_id)
-            return {
-                "success": result.success,
-                "action": "click",
-                "element_id": element_id,
-                "outcome": result.outcome,
-                "url_changed": result.url_changed,
-            }
-
-        # Parse TYPE(42, "hello world")
-        elif match := re.match(
-            r'TYPE\s*\(\s*(\d+)\s*,\s*["\']([^"\']*)["\']\s*\)',
-            action_str,
-            re.IGNORECASE,
-        ):
-            element_id = int(match.group(1))
-            text = match.group(2)
-            result = await type_text_async(self.browser, element_id, text)
-            return {
-                "success": result.success,
-                "action": "type",
-                "element_id": element_id,
-                "text": text,
-                "outcome": result.outcome,
-            }
-
-        # Parse PRESS("Enter")
-        elif match := re.match(r'PRESS\s*\(\s*["\']([^"\']+)["\']\s*\)', action_str, re.IGNORECASE):
-            key = match.group(1)
-            result = await press_async(self.browser, key)
-            return {
-                "success": result.success,
-                "action": "press",
-                "key": key,
-                "outcome": result.outcome,
-            }
-
-        # Parse FINISH()
-        elif re.match(r"FINISH\s*\(\s*\)", action_str, re.IGNORECASE):
-            return {
-                "success": True,
-                "action": "finish",
-                "message": "Task marked as complete",
-            }
-
-        else:
-            raise ValueError(
-                f"Unknown action format: {action_str}\n"
-                f'Expected: CLICK(id), TYPE(id, "text"), PRESS("key"), or FINISH()'
-            )
 
     def _track_tokens(self, goal: str, llm_response: LLMResponse):
         """Track token usage for analytics (same as sync version)"""
@@ -1443,66 +1153,17 @@ INCORRECT Examples (DO NOT DO THIS):
         }
 
     def filter_elements(self, snapshot: Snapshot, goal: str | None = None) -> list[Element]:
-        """Filter elements from snapshot based on goal context (same as sync version)"""
-        elements = snapshot.elements
+        """
+        Filter elements from snapshot based on goal context.
 
-        # If no goal provided, return all elements (up to limit)
-        if not goal:
-            return elements[: self.default_snapshot_limit]
+        This implementation uses ElementFilter to apply goal-based keyword matching
+        to boost relevant elements and filters out irrelevant ones.
 
-        goal_lower = goal.lower()
+        Args:
+            snapshot: Current page snapshot
+            goal: User's goal (can inform filtering)
 
-        # Extract keywords from goal
-        keywords = self._extract_keywords(goal_lower)
-
-        # Boost elements matching goal keywords
-        scored_elements = []
-        for el in elements:
-            score = el.importance
-
-            # Boost if element text matches goal
-            if el.text and any(kw in el.text.lower() for kw in keywords):
-                score += 0.3
-
-            # Boost if role matches goal intent
-            if "click" in goal_lower and el.visual_cues.is_clickable:
-                score += 0.2
-            if "type" in goal_lower and el.role in ["textbox", "searchbox"]:
-                score += 0.2
-            if "search" in goal_lower:
-                # Filter out non-interactive elements for search tasks
-                if el.role in ["link", "img"] and not el.visual_cues.is_primary:
-                    score -= 0.5
-
-            scored_elements.append((score, el))
-
-        # Re-sort by boosted score
-        scored_elements.sort(key=lambda x: x[0], reverse=True)
-        elements = [el for _, el in scored_elements]
-
-        return elements[: self.default_snapshot_limit]
-
-    def _extract_keywords(self, text: str) -> list[str]:
-        """Extract meaningful keywords from goal text (same as sync version)"""
-        stopwords = {
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "but",
-            "in",
-            "on",
-            "at",
-            "to",
-            "for",
-            "of",
-            "with",
-            "by",
-            "from",
-            "as",
-            "is",
-            "was",
-        }
-        words = text.split()
-        return [w for w in words if w not in stopwords and len(w) > 2]
+        Returns:
+            Filtered list of elements
+        """
+        return ElementFilter.filter_by_goal(snapshot, goal, self.default_snapshot_limit)
