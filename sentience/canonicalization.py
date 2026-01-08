@@ -75,36 +75,34 @@ def round_bbox(bbox: dict[str, float], precision: int = 2) -> dict[str, int]:
     }
 
 
-def bbox_equal(bbox1: dict[str, Any], bbox2: dict[str, Any], precision: int = 2) -> bool:
+def bbox_equal(bbox1: dict[str, Any], bbox2: dict[str, Any], threshold: float = 5.0) -> bool:
     """
-    Check if two bboxes are equal after rounding.
+    Check if two bboxes are equal within a threshold.
 
     Args:
         bbox1: First bounding box
         bbox2: Second bounding box
-        precision: Grid size for rounding (default: 2)
+        threshold: Maximum allowed difference in pixels (default: 5.0)
 
     Returns:
-        True if bboxes are equal after rounding
+        True if all bbox properties differ by less than threshold
 
     Examples:
         >>> bbox_equal({"x": 100, "y": 200, "width": 50, "height": 25},
-        ...            {"x": 101, "y": 200, "width": 50, "height": 25})
-        True
+        ...            {"x": 102, "y": 200, "width": 50, "height": 25})
+        True  # 2px difference is below 5px threshold
     """
-    r1 = round_bbox(bbox1, precision)
-    r2 = round_bbox(bbox2, precision)
     return (
-        r1["x"] == r2["x"]
-        and r1["y"] == r2["y"]
-        and r1["width"] == r2["width"]
-        and r1["height"] == r2["height"]
+        abs(bbox1.get("x", 0) - bbox2.get("x", 0)) <= threshold
+        and abs(bbox1.get("y", 0) - bbox2.get("y", 0)) <= threshold
+        and abs(bbox1.get("width", 0) - bbox2.get("width", 0)) <= threshold
+        and abs(bbox1.get("height", 0) - bbox2.get("height", 0)) <= threshold
     )
 
 
-def bbox_changed(bbox1: dict[str, Any], bbox2: dict[str, Any], precision: int = 2) -> bool:
+def bbox_changed(bbox1: dict[str, Any], bbox2: dict[str, Any], threshold: float = 5.0) -> bool:
     """
-    Check if two bboxes differ after rounding.
+    Check if two bboxes differ beyond the threshold.
 
     This is the inverse of bbox_equal, provided for semantic clarity
     in diff detection code.
@@ -112,12 +110,12 @@ def bbox_changed(bbox1: dict[str, Any], bbox2: dict[str, Any], precision: int = 
     Args:
         bbox1: First bounding box
         bbox2: Second bounding box
-        precision: Grid size for rounding (default: 2)
+        threshold: Maximum allowed difference in pixels (default: 5.0)
 
     Returns:
-        True if bboxes differ after rounding
+        True if any bbox property differs by more than threshold
     """
-    return not bbox_equal(bbox1, bbox2, precision)
+    return not bbox_equal(bbox1, bbox2, threshold)
 
 
 def canonicalize_element(elem: dict[str, Any]) -> dict[str, Any]:
