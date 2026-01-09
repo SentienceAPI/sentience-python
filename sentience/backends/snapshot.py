@@ -25,6 +25,7 @@ import time
 from typing import TYPE_CHECKING, Any
 
 from ..models import Snapshot, SnapshotOptions
+from .exceptions import ExtensionDiagnostics, ExtensionNotLoadedError, SnapshotError
 
 if TYPE_CHECKING:
     from .protocol_v0 import BrowserBackendV0
@@ -184,30 +185,36 @@ async def snapshot(
     ext_options = _build_extension_options(options)
 
     # Call extension's snapshot function
-    result = await backend.eval(f"""
+    result = await backend.eval(
+        f"""
         (() => {{
             const options = {_json_serialize(ext_options)};
             return window.sentience.snapshot(options);
         }})()
-    """)
+    """
+    )
 
     if result is None:
-        raise RuntimeError(
-            "window.sentience.snapshot() returned null. "
-            "Is the Sentience extension loaded and injected?"
-        )
+        # Try to get URL for better error message
+        try:
+            url = await backend.eval("window.location.href")
+        except Exception:
+            url = None
+        raise SnapshotError.from_null_result(url=url)
 
     # Show overlay if requested
     if options.show_overlay:
         raw_elements = result.get("raw_elements", [])
         if raw_elements:
-            await backend.eval(f"""
+            await backend.eval(
+                f"""
                 (() => {{
                     if (window.sentience && window.sentience.showOverlay) {{
                         window.sentience.showOverlay({_json_serialize(raw_elements)}, null);
                     }}
                 }})()
-            """)
+            """
+            )
 
     # Build and return Snapshot
     return Snapshot(**result)
@@ -237,19 +244,22 @@ async def _wait_for_extension(
         if elapsed >= timeout_sec:
             # Gather diagnostics
             try:
-                diag = await backend.eval("""
+                diag_dict = await backend.eval(
+                    """
                     (() => ({
                         sentience_defined: typeof window.sentience !== 'undefined',
                         sentience_snapshot: typeof window.sentience?.snapshot === 'function',
                         url: window.location.href
                     }))()
-                """)
-            except Exception:
-                diag = {"error": "Could not gather diagnostics"}
+                """
+                )
+                diagnostics = ExtensionDiagnostics.from_dict(diag_dict)
+            except Exception as e:
+                diagnostics = ExtensionDiagnostics(error=f"Could not gather diagnostics: {e}")
 
-            raise RuntimeError(
-                f"Sentience extension failed to inject window.sentience API "
-                f"within {timeout_ms}ms. Diagnostics: {diag}"
+            raise ExtensionNotLoadedError.from_timeout(
+                timeout_ms=timeout_ms,
+                diagnostics=diagnostics,
             )
 
         # Check if extension is ready
@@ -294,4 +304,5 @@ def _build_extension_options(options: SnapshotOptions) -> dict[str, Any]:
 def _json_serialize(obj: Any) -> str:
     """Serialize object to JSON string for embedding in JS."""
     import json
+
     return json.dumps(obj)
