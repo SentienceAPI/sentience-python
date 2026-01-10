@@ -64,6 +64,11 @@ class Element(BaseModel):
     # Hyperlink URL (for link elements)
     href: str | None = None
 
+    # Phase 3.2: Pre-computed dominant group membership (uses fuzzy matching)
+    # This field is computed by the gateway so downstream consumers don't need to
+    # implement fuzzy matching logic themselves.
+    in_dominant_group: bool | None = None
+
 
 class Snapshot(BaseModel):
     """Snapshot response from extension"""
