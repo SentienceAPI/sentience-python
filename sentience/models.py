@@ -54,6 +54,13 @@ class Element(BaseModel):
     # Diff status for frontend Diff Overlay feature
     diff_status: Literal["ADDED", "REMOVED", "MODIFIED", "MOVED"] | None = None
 
+    # Phase 1: Ordinal support fields for position-based selection
+    center_x: float | None = None  # X coordinate of element center (viewport coords)
+    center_y: float | None = None  # Y coordinate of element center (viewport coords)
+    doc_y: float | None = None  # Y coordinate in document (center_y + scroll_y)
+    group_key: str | None = None  # Geometric bucket key for ordinal grouping
+    group_index: int | None = None  # Position within group (0-indexed, sorted by doc_y)
+
 
 class Snapshot(BaseModel):
     """Snapshot response from extension"""
