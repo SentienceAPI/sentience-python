@@ -18,9 +18,9 @@ Example usage:
     element = select_by_ordinal(elements, dominant_group_key, intent)
 """
 
+import re
 from dataclasses import dataclass
 from typing import Literal
-import re
 
 from sentience.models import Element
 
@@ -278,5 +278,3 @@ def boost_ordinal_elements(
         result.append(copy)
 
     return result
-
-

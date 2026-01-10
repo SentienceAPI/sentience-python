@@ -79,12 +79,7 @@ from .models import (  # Agent Layer Models
 )
 
 # Ordinal support (Phase 3)
-from .ordinal import (
-    OrdinalIntent,
-    boost_ordinal_elements,
-    detect_ordinal_intent,
-    select_by_ordinal,
-)
+from .ordinal import OrdinalIntent, boost_ordinal_elements, detect_ordinal_intent, select_by_ordinal
 from .overlay import clear_overlay, show_overlay
 from .query import find, query
 from .read import read
