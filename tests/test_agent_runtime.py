@@ -5,8 +5,9 @@ These tests verify the AgentRuntime works correctly with the new
 BrowserBackendV0-based architecture.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from sentience.agent_runtime import AgentRuntime
 from sentience.models import SnapshotOptions
@@ -61,11 +62,13 @@ class MockTracer:
         self.events: list[dict] = []
 
     def emit(self, event_type: str, data: dict, step_id: str | None = None) -> None:
-        self.events.append({
-            "type": event_type,
-            "data": data,
-            "step_id": step_id,
-        })
+        self.events.append(
+            {
+                "type": event_type,
+                "data": data,
+                "step_id": step_id,
+            }
+        )
 
 
 class TestAgentRuntimeInit:
