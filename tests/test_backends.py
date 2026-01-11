@@ -341,6 +341,30 @@ class TestCDPBackendV0:
         with pytest.raises(TimeoutError, match="Timed out"):
             await backend.wait_ready_state(state="complete", timeout_ms=200)
 
+    @pytest.mark.asyncio
+    async def test_get_url(self, backend: CDPBackendV0, transport: MockCDPTransport) -> None:
+        """Test get_url returns current page URL."""
+        transport.set_response(
+            "Runtime.evaluate",
+            {"result": {"type": "string", "value": "https://example.com/page"}},
+        )
+
+        url = await backend.get_url()
+
+        assert url == "https://example.com/page"
+
+    @pytest.mark.asyncio
+    async def test_get_url_empty(self, backend: CDPBackendV0, transport: MockCDPTransport) -> None:
+        """Test get_url returns empty string when URL is None."""
+        transport.set_response(
+            "Runtime.evaluate",
+            {"result": {"type": "undefined"}},
+        )
+
+        url = await backend.get_url()
+
+        assert url == ""
+
 
 class TestCDPBackendProtocol:
     """Test that CDPBackendV0 implements BrowserBackendV0 protocol."""
@@ -735,6 +759,17 @@ class TestPlaywrightBackend:
 
         assert result.startswith(b"\x89PNG")
         mock_page.screenshot.assert_called_once_with(type="png")
+
+    @pytest.mark.asyncio
+    async def test_get_url(self) -> None:
+        """Test get_url returns page.url."""
+        mock_page = MagicMock()
+        mock_page.url = "https://example.com/test"
+
+        backend = PlaywrightBackend(mock_page)
+        url = await backend.get_url()
+
+        assert url == "https://example.com/test"
 
 
 class TestCachedSnapshot:

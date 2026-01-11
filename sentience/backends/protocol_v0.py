@@ -205,3 +205,12 @@ class BrowserBackendV0(Protocol):
             TimeoutError: If state not reached within timeout
         """
         ...
+
+    async def get_url(self) -> str:
+        """
+        Get current page URL.
+
+        Returns:
+            Current page URL (window.location.href)
+        """
+        ...

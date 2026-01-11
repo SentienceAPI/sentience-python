@@ -386,3 +386,8 @@ class CDPBackendV0:
 
             # Poll every 100ms
             await asyncio.sleep(0.1)
+
+    async def get_url(self) -> str:
+        """Get current page URL."""
+        result = await self.eval("window.location.href")
+        return result if result else ""

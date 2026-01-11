@@ -185,6 +185,10 @@ class PlaywrightBackend:
 
             await asyncio.sleep(0.1)
 
+    async def get_url(self) -> str:
+        """Get current page URL."""
+        return self._page.url
+
 
 # Verify protocol compliance at import time
 assert isinstance(PlaywrightBackend.__new__(PlaywrightBackend), BrowserBackendV0)

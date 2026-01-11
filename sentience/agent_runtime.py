@@ -2,7 +2,7 @@
 Agent runtime for verification loop support.
 
 This module provides a thin runtime wrapper that combines:
-1. Browser session management
+1. Browser session management (via BrowserBackendV0 protocol)
 2. Snapshot/query helpers
 3. Tracer for event emission
 4. Assertion/verification methods
@@ -10,29 +10,55 @@ This module provides a thin runtime wrapper that combines:
 The AgentRuntime is designed to be used in agent verification loops where
 you need to repeatedly take snapshots, execute actions, and verify results.
 
-Example usage:
-    from sentience import AsyncSentienceBrowser
+Example usage with browser-use:
+    from browser_use import BrowserSession, BrowserProfile
+    from sentience import get_extension_dir
+    from sentience.backends import BrowserUseAdapter
     from sentience.agent_runtime import AgentRuntime
     from sentience.verification import url_matches, exists
     from sentience.tracing import Tracer, JsonlTraceSink
+
+    # Setup browser-use with Sentience extension
+    profile = BrowserProfile(args=[f"--load-extension={get_extension_dir()}"])
+    session = BrowserSession(browser_profile=profile)
+    await session.start()
+
+    # Create adapter and backend
+    adapter = BrowserUseAdapter(session)
+    backend = await adapter.create_backend()
+
+    # Navigate using browser-use
+    page = await session.get_current_page()
+    await page.goto("https://example.com")
+
+    # Create runtime with backend
+    sink = JsonlTraceSink("trace.jsonl")
+    tracer = Tracer(run_id="test-run", sink=sink)
+    runtime = AgentRuntime(backend=backend, tracer=tracer)
+
+    # Take snapshot and run assertions
+    await runtime.snapshot()
+    runtime.assert_(url_matches(r"example\\.com"), label="on_homepage")
+    runtime.assert_(exists("role=button"), label="has_buttons")
+
+    # Check if task is done
+    if runtime.assert_done(exists("text~'Success'"), label="task_complete"):
+        print("Task completed!")
+
+Example usage with AsyncSentienceBrowser (backward compatible):
+    from sentience import AsyncSentienceBrowser
+    from sentience.agent_runtime import AgentRuntime
 
     async with AsyncSentienceBrowser() as browser:
         page = await browser.new_page()
         await page.goto("https://example.com")
 
-        sink = JsonlTraceSink("trace.jsonl")
-        tracer = Tracer(run_id="test-run", sink=sink)
-
-        runtime = AgentRuntime(browser=browser, page=page, tracer=tracer)
-
-        # Take snapshot and run assertions
+        runtime = await AgentRuntime.from_sentience_browser(
+            browser=browser,
+            page=page,
+            tracer=tracer,
+        )
         await runtime.snapshot()
-        runtime.assert_(url_matches(r"example\\.com"), label="on_homepage")
-        runtime.assert_(exists("role=button"), label="has_buttons")
-
-        # Check if task is done
-        if runtime.assert_done(exists("text~'Success'"), label="task_complete"):
-            print("Task completed!")
 """
 
 from __future__ import annotations
@@ -40,13 +66,14 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from .verification import AssertContext, AssertOutcome, Predicate
+from .models import Snapshot, SnapshotOptions
+from .verification import AssertContext, Predicate
 
 if TYPE_CHECKING:
     from playwright.async_api import Page
 
+    from .backends.protocol_v0 import BrowserBackendV0
     from .browser import AsyncSentienceBrowser
-    from .models import Snapshot
     from .tracing import Tracer
 
 
@@ -63,8 +90,7 @@ class AgentRuntime:
     to the tracer for Studio timeline display.
 
     Attributes:
-        browser: AsyncSentienceBrowser instance
-        page: Playwright Page instance
+        backend: BrowserBackendV0 instance for browser operations
         tracer: Tracer for event emission
         step_id: Current step identifier
         step_index: Current step index (0-based)
@@ -73,21 +99,33 @@ class AgentRuntime:
 
     def __init__(
         self,
-        browser: AsyncSentienceBrowser,
-        page: Page,
+        backend: BrowserBackendV0,
         tracer: Tracer,
+        snapshot_options: SnapshotOptions | None = None,
+        sentience_api_key: str | None = None,
     ):
         """
-        Initialize agent runtime.
+        Initialize agent runtime with any BrowserBackendV0-compatible browser.
 
         Args:
-            browser: AsyncSentienceBrowser instance for taking snapshots
-            page: Playwright Page for browser interaction
+            backend: Any browser implementing BrowserBackendV0 protocol.
+                     Examples:
+                     - CDPBackendV0 (for browser-use via BrowserUseAdapter)
+                     - PlaywrightBackend (future, for direct Playwright)
             tracer: Tracer for emitting verification events
+            snapshot_options: Default options for snapshots
+            sentience_api_key: API key for Pro/Enterprise tier (enables Gateway refinement)
         """
-        self.browser = browser
-        self.page = page
+        self.backend = backend
         self.tracer = tracer
+
+        # Build default snapshot options with API key if provided
+        default_opts = snapshot_options or SnapshotOptions()
+        if sentience_api_key:
+            default_opts.sentience_api_key = sentience_api_key
+            if default_opts.use_api is None:
+                default_opts.use_api = True
+        self._snapshot_options = default_opts
 
         # Step tracking
         self.step_id: str | None = None
@@ -96,12 +134,54 @@ class AgentRuntime:
         # Snapshot state
         self.last_snapshot: Snapshot | None = None
 
+        # Cached URL (updated on snapshot or explicit get_url call)
+        self._cached_url: str | None = None
+
         # Assertions accumulated during current step
         self._assertions_this_step: list[dict[str, Any]] = []
 
         # Task completion tracking
         self._task_done: bool = False
         self._task_done_label: str | None = None
+
+    @classmethod
+    async def from_sentience_browser(
+        cls,
+        browser: AsyncSentienceBrowser,
+        page: Page,
+        tracer: Tracer,
+        snapshot_options: SnapshotOptions | None = None,
+        sentience_api_key: str | None = None,
+    ) -> AgentRuntime:
+        """
+        Create AgentRuntime from AsyncSentienceBrowser (backward compatibility).
+
+        This factory method wraps an AsyncSentienceBrowser + Page combination
+        into the new BrowserBackendV0-based AgentRuntime.
+
+        Args:
+            browser: AsyncSentienceBrowser instance
+            page: Playwright Page for browser interaction
+            tracer: Tracer for emitting verification events
+            snapshot_options: Default options for snapshots
+            sentience_api_key: API key for Pro/Enterprise tier
+
+        Returns:
+            AgentRuntime instance
+        """
+        from .backends.playwright_backend import PlaywrightBackend
+
+        backend = PlaywrightBackend(page)
+        runtime = cls(
+            backend=backend,
+            tracer=tracer,
+            snapshot_options=snapshot_options,
+            sentience_api_key=sentience_api_key,
+        )
+        # Store browser reference for snapshot() to use
+        runtime._legacy_browser = browser
+        runtime._legacy_page = page
+        return runtime
 
     def _ctx(self) -> AssertContext:
         """
@@ -113,8 +193,8 @@ class AgentRuntime:
         url = None
         if self.last_snapshot is not None:
             url = self.last_snapshot.url
-        elif self.page:
-            url = self.page.url
+        elif self._cached_url:
+            url = self._cached_url
 
         return AssertContext(
             snapshot=self.last_snapshot,
@@ -122,19 +202,48 @@ class AgentRuntime:
             step_id=self.step_id,
         )
 
-    async def snapshot(self, **kwargs) -> Snapshot:
+    async def get_url(self) -> str:
+        """
+        Get current page URL.
+
+        Returns:
+            Current page URL
+        """
+        url = await self.backend.get_url()
+        self._cached_url = url
+        return url
+
+    async def snapshot(self, **kwargs: Any) -> Snapshot:
         """
         Take a snapshot of the current page state.
 
         This updates last_snapshot which is used as context for assertions.
 
         Args:
-            **kwargs: Passed through to browser.snapshot()
+            **kwargs: Override default snapshot options for this call.
+                     Common options:
+                     - limit: Maximum elements to return
+                     - goal: Task goal for ordinal support
+                     - screenshot: Include screenshot
+                     - show_overlay: Show visual overlay
 
         Returns:
             Snapshot of current page state
         """
-        self.last_snapshot = await self.browser.snapshot(self.page, **kwargs)
+        # Check if using legacy browser (backward compat)
+        if hasattr(self, "_legacy_browser") and hasattr(self, "_legacy_page"):
+            self.last_snapshot = await self._legacy_browser.snapshot(self._legacy_page, **kwargs)
+            return self.last_snapshot
+
+        # Use backend-agnostic snapshot
+        from .backends.snapshot import snapshot as backend_snapshot
+
+        # Merge default options with call-specific kwargs
+        options_dict = self._snapshot_options.model_dump(exclude_none=True)
+        options_dict.update(kwargs)
+        options = SnapshotOptions(**options_dict)
+
+        self.last_snapshot = await backend_snapshot(self.backend, options=options)
         return self.last_snapshot
 
     def begin_step(self, goal: str, step_index: int | None = None) -> str:
