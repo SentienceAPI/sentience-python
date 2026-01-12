@@ -96,13 +96,13 @@ from .exceptions import (
     SnapshotError,
 )
 from .playwright_backend import PlaywrightBackend
-from .protocol_v0 import BrowserBackendV0, LayoutMetrics, ViewportInfo
+from .protocol import BrowserBackend, LayoutMetrics, ViewportInfo
 from .sentience_context import SentienceContext, SentienceContextState, TopElementSelector
 from .snapshot import CachedSnapshot, snapshot
 
 __all__ = [
     # Protocol
-    "BrowserBackendV0",
+    "BrowserBackend",
     # Models
     "ViewportInfo",
     "LayoutMetrics",

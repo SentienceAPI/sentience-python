@@ -81,6 +81,48 @@ class LLMProvider(ABC):
         """
         pass
 
+    def supports_vision(self) -> bool:
+        """
+        Whether this provider supports image input for vision tasks.
+
+        Override in subclasses that support vision-capable models.
+
+        Returns:
+            True if provider supports vision, False otherwise
+        """
+        return False
+
+    def generate_with_image(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_base64: str,
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Generate a response with image input (for vision-capable models).
+
+        This method is used for vision fallback in assertions and visual agents.
+        Override in subclasses that support vision-capable models.
+
+        Args:
+            system_prompt: System instruction/context
+            user_prompt: User query/request
+            image_base64: Base64-encoded image (PNG or JPEG)
+            **kwargs: Provider-specific parameters (temperature, max_tokens, etc.)
+
+        Returns:
+            LLMResponse with content and token usage
+
+        Raises:
+            NotImplementedError: If provider doesn't support vision
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not support vision. "
+            "Use a vision-capable provider like OpenAIProvider with GPT-4o "
+            "or AnthropicProvider with Claude 3."
+        )
+
 
 class OpenAIProvider(LLMProvider):
     """
@@ -187,6 +229,92 @@ class OpenAIProvider(LLMProvider):
         model_lower = self._model_name.lower()
         return any(x in model_lower for x in ["gpt-4", "gpt-3.5"])
 
+    def supports_vision(self) -> bool:
+        """GPT-4o, GPT-4-turbo, and GPT-4-vision support vision."""
+        model_lower = self._model_name.lower()
+        return any(x in model_lower for x in ["gpt-4o", "gpt-4-turbo", "gpt-4-vision"])
+
+    def generate_with_image(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_base64: str,
+        temperature: float = 0.0,
+        max_tokens: int | None = None,
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Generate response with image input using OpenAI Vision API.
+
+        Args:
+            system_prompt: System instruction
+            user_prompt: User query
+            image_base64: Base64-encoded image (PNG or JPEG)
+            temperature: Sampling temperature (0.0 = deterministic)
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional OpenAI API parameters
+
+        Returns:
+            LLMResponse object
+
+        Raises:
+            NotImplementedError: If model doesn't support vision
+        """
+        if not self.supports_vision():
+            raise NotImplementedError(
+                f"Model {self._model_name} does not support vision. "
+                "Use gpt-4o, gpt-4-turbo, or gpt-4-vision-preview."
+            )
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+
+        # Vision message format with image_url
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": user_prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:image/png;base64,{image_base64}"},
+                    },
+                ],
+            }
+        )
+
+        # Build API parameters
+        api_params = {
+            "model": self._model_name,
+            "messages": messages,
+            "temperature": temperature,
+        }
+
+        if max_tokens:
+            api_params["max_tokens"] = max_tokens
+
+        # Merge additional parameters
+        api_params.update(kwargs)
+
+        # Call OpenAI API
+        try:
+            response = self.client.chat.completions.create(**api_params)
+        except Exception as e:
+            handle_provider_error(e, "OpenAI", "generate response with image")
+
+        choice = response.choices[0]
+        usage = response.usage
+
+        return LLMResponseBuilder.from_openai_format(
+            content=choice.message.content,
+            prompt_tokens=usage.prompt_tokens if usage else None,
+            completion_tokens=usage.completion_tokens if usage else None,
+            total_tokens=usage.total_tokens if usage else None,
+            model_name=response.model,
+            finish_reason=choice.finish_reason,
+        )
+
     @property
     def model_name(self) -> str:
         return self._model_name
@@ -276,6 +404,94 @@ class AnthropicProvider(LLMProvider):
     def supports_json_mode(self) -> bool:
         """Anthropic doesn't have native JSON mode (requires prompt engineering)"""
         return False
+
+    def supports_vision(self) -> bool:
+        """Claude 3 models (Opus, Sonnet, Haiku) all support vision."""
+        model_lower = self._model_name.lower()
+        return any(x in model_lower for x in ["claude-3", "claude-3.5"])
+
+    def generate_with_image(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_base64: str,
+        temperature: float = 0.0,
+        max_tokens: int = 1024,
+        **kwargs,
+    ) -> LLMResponse:
+        """
+        Generate response with image input using Anthropic Vision API.
+
+        Args:
+            system_prompt: System instruction
+            user_prompt: User query
+            image_base64: Base64-encoded image (PNG or JPEG)
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate (required by Anthropic)
+            **kwargs: Additional Anthropic API parameters
+
+        Returns:
+            LLMResponse object
+
+        Raises:
+            NotImplementedError: If model doesn't support vision
+        """
+        if not self.supports_vision():
+            raise NotImplementedError(
+                f"Model {self._model_name} does not support vision. "
+                "Use Claude 3 models (claude-3-opus, claude-3-sonnet, claude-3-haiku)."
+            )
+
+        # Anthropic vision message format
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": image_base64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": user_prompt,
+                    },
+                ],
+            }
+        ]
+
+        # Build API parameters
+        api_params = {
+            "model": self._model_name,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "messages": messages,
+        }
+
+        if system_prompt:
+            api_params["system"] = system_prompt
+
+        # Merge additional parameters
+        api_params.update(kwargs)
+
+        # Call Anthropic API
+        try:
+            response = self.client.messages.create(**api_params)
+        except Exception as e:
+            handle_provider_error(e, "Anthropic", "generate response with image")
+
+        content = response.content[0].text if response.content else ""
+
+        return LLMResponseBuilder.from_anthropic_format(
+            content=content,
+            input_tokens=response.usage.input_tokens if hasattr(response, "usage") else None,
+            output_tokens=response.usage.output_tokens if hasattr(response, "usage") else None,
+            model_name=response.model,
+            stop_reason=response.stop_reason,
+        )
 
     @property
     def model_name(self) -> str:

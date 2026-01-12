@@ -2,7 +2,7 @@
 Tests for AgentRuntime.
 
 These tests verify the AgentRuntime works correctly with the new
-BrowserBackendV0-based architecture.
+BrowserBackend-based architecture.
 """
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -15,7 +15,7 @@ from sentience.verification import AssertContext, AssertOutcome
 
 
 class MockBackend:
-    """Mock BrowserBackendV0 implementation for testing."""
+    """Mock BrowserBackend implementation for testing."""
 
     def __init__(self) -> None:
         self._url = "https://example.com"

@@ -2,7 +2,7 @@
 Agent runtime for verification loop support.
 
 This module provides a thin runtime wrapper that combines:
-1. Browser session management (via BrowserBackendV0 protocol)
+1. Browser session management (via BrowserBackend protocol)
 2. Snapshot/query helpers
 3. Tracer for event emission
 4. Assertion/verification methods
@@ -72,7 +72,7 @@ from .verification import AssertContext, Predicate
 if TYPE_CHECKING:
     from playwright.async_api import Page
 
-    from .backends.protocol_v0 import BrowserBackendV0
+    from .backends.protocol import BrowserBackend
     from .browser import AsyncSentienceBrowser
     from .tracing import Tracer
 
@@ -90,7 +90,7 @@ class AgentRuntime:
     to the tracer for Studio timeline display.
 
     Attributes:
-        backend: BrowserBackendV0 instance for browser operations
+        backend: BrowserBackend instance for browser operations
         tracer: Tracer for event emission
         step_id: Current step identifier
         step_index: Current step index (0-based)
@@ -99,16 +99,16 @@ class AgentRuntime:
 
     def __init__(
         self,
-        backend: BrowserBackendV0,
+        backend: BrowserBackend,
         tracer: Tracer,
         snapshot_options: SnapshotOptions | None = None,
         sentience_api_key: str | None = None,
     ):
         """
-        Initialize agent runtime with any BrowserBackendV0-compatible browser.
+        Initialize agent runtime with any BrowserBackend-compatible browser.
 
         Args:
-            backend: Any browser implementing BrowserBackendV0 protocol.
+            backend: Any browser implementing BrowserBackend protocol.
                      Examples:
                      - CDPBackendV0 (for browser-use via BrowserUseAdapter)
                      - PlaywrightBackend (future, for direct Playwright)
@@ -157,7 +157,7 @@ class AgentRuntime:
         Create AgentRuntime from AsyncSentienceBrowser (backward compatibility).
 
         This factory method wraps an AsyncSentienceBrowser + Page combination
-        into the new BrowserBackendV0-based AgentRuntime.
+        into the new BrowserBackend-based AgentRuntime.
 
         Args:
             browser: AsyncSentienceBrowser instance

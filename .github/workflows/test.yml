@@ -41,18 +41,33 @@ jobs:
       run: |
         echo "=== Installed sentience location ==="
         python -c "import sentience; print(sentience.__file__)"
-        echo "=== Check assert_done source code ==="
+        echo "=== Check assert_done in installed package ==="
         python -c "
 import inspect
 from sentience.agent_runtime import AgentRuntime
 source = inspect.getsource(AgentRuntime.assert_done)
-print(source[:500])
+print(source)
 if 'assertTrue' in source:
     print('ERROR: assertTrue found in installed package!')
     exit(1)
 else:
     print('Good: assert_ is correctly used')
 "
+
+    - name: Verify source code
+      shell: bash
+      run: |
+        echo "=== Checking agent_runtime.py line 345 ==="
+        sed -n '340,350p' sentience/agent_runtime.py
+        echo "=== Verifying assert_ method exists ==="
+        grep -n "def assert_" sentience/agent_runtime.py
+        echo "=== Checking for assertTrue (should NOT exist) ==="
+        if grep -n "assertTrue" sentience/agent_runtime.py; then
+          echo "ERROR: Found assertTrue - this should have been removed!"
+          exit 1
+        else
+          echo "Good: no assertTrue found"
+        fi
 
     - name: Lint with pre-commit
       continue-on-error: true

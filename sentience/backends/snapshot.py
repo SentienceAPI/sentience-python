@@ -1,7 +1,7 @@
 """
 Backend-agnostic snapshot for browser-use integration.
 
-Takes Sentience snapshots using BrowserBackendV0 protocol,
+Takes Sentience snapshots using BrowserBackend protocol,
 enabling element grounding with browser-use or other frameworks.
 
 Usage with browser-use:
@@ -34,7 +34,7 @@ from ..snapshot import (
 from .exceptions import ExtensionDiagnostics, ExtensionNotLoadedError, SnapshotError
 
 if TYPE_CHECKING:
-    from .protocol_v0 import BrowserBackendV0
+    from .protocol import BrowserBackend
 
 
 class CachedSnapshot:
@@ -63,7 +63,7 @@ class CachedSnapshot:
 
     def __init__(
         self,
-        backend: "BrowserBackendV0",
+        backend: "BrowserBackend",
         max_age_ms: int = 2000,
         options: SnapshotOptions | None = None,
     ) -> None:
@@ -71,7 +71,7 @@ class CachedSnapshot:
         Initialize cached snapshot.
 
         Args:
-            backend: BrowserBackendV0 implementation
+            backend: BrowserBackend implementation
             max_age_ms: Maximum cache age in milliseconds (default: 2000)
             options: Default snapshot options
         """
@@ -145,7 +145,7 @@ class CachedSnapshot:
 
 
 async def snapshot(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     options: SnapshotOptions | None = None,
 ) -> Snapshot:
     """
@@ -160,7 +160,7 @@ async def snapshot(
         - Extension injected window.sentience API
 
     Args:
-        backend: BrowserBackendV0 implementation (CDPBackendV0, PlaywrightBackend, etc.)
+        backend: BrowserBackend implementation (CDPBackendV0, PlaywrightBackend, etc.)
         options: Snapshot options (limit, filter, screenshot, use_api, sentience_api_key, etc.)
 
     Returns:
@@ -208,14 +208,14 @@ async def snapshot(
 
 
 async def _wait_for_extension(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     timeout_ms: int = 5000,
 ) -> None:
     """
     Wait for Sentience extension to inject window.sentience API.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         timeout_ms: Maximum wait time
 
     Raises:
@@ -278,7 +278,7 @@ async def _wait_for_extension(
 
 
 async def _snapshot_via_extension(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     options: SnapshotOptions,
 ) -> Snapshot:
     """Take snapshot using local extension (Free tier)"""
@@ -325,7 +325,7 @@ async def _snapshot_via_extension(
 
 
 async def _snapshot_via_api(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     options: SnapshotOptions,
 ) -> Snapshot:
     """Take snapshot using server-side API (Pro/Enterprise tier)"""
