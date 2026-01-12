@@ -1,7 +1,7 @@
 """
 CDP Backend implementation for browser-use integration.
 
-This module provides CDPBackendV0, which implements BrowserBackendV0 protocol
+This module provides CDPBackendV0, which implements BrowserBackend protocol
 using Chrome DevTools Protocol (CDP) commands.
 
 Usage with browser-use:
@@ -25,7 +25,7 @@ import base64
 import time
 from typing import Any, Literal, Protocol, runtime_checkable
 
-from .protocol_v0 import BrowserBackendV0, LayoutMetrics, ViewportInfo
+from .protocol import BrowserBackend, LayoutMetrics, ViewportInfo
 
 
 @runtime_checkable
@@ -53,7 +53,7 @@ class CDPTransport(Protocol):
 
 class CDPBackendV0:
     """
-    CDP-based implementation of BrowserBackendV0.
+    CDP-based implementation of BrowserBackend.
 
     This backend uses CDP commands to interact with the browser,
     making it compatible with browser-use's CDP client.

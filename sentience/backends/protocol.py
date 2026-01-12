@@ -46,7 +46,7 @@ class LayoutMetrics(BaseModel):
 
 
 @runtime_checkable
-class BrowserBackendV0(Protocol):
+class BrowserBackend(Protocol):
     """
     Minimal backend protocol for v0 proof-of-concept.
 

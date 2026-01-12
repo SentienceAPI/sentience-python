@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from sentience.backends import (
-    BrowserBackendV0,
+    BrowserBackend,
     BrowserUseAdapter,
     BrowserUseCDPTransport,
     CachedSnapshot,
@@ -367,13 +367,13 @@ class TestCDPBackendV0:
 
 
 class TestCDPBackendProtocol:
-    """Test that CDPBackendV0 implements BrowserBackendV0 protocol."""
+    """Test that CDPBackendV0 implements BrowserBackend protocol."""
 
     def test_implements_protocol(self) -> None:
-        """Verify CDPBackendV0 is recognized as BrowserBackendV0."""
+        """Verify CDPBackendV0 is recognized as BrowserBackend."""
         transport = MockCDPTransport()
         backend = CDPBackendV0(transport)
-        assert isinstance(backend, BrowserBackendV0)
+        assert isinstance(backend, BrowserBackend)
 
 
 class TestBrowserUseCDPTransport:
@@ -680,10 +680,10 @@ class TestPlaywrightBackend:
     """Tests for PlaywrightBackend wrapper."""
 
     def test_implements_protocol(self) -> None:
-        """Verify PlaywrightBackend implements BrowserBackendV0."""
+        """Verify PlaywrightBackend implements BrowserBackend."""
         mock_page = MagicMock()
         backend = PlaywrightBackend(mock_page)
-        assert isinstance(backend, BrowserBackendV0)
+        assert isinstance(backend, BrowserBackend)
 
     def test_page_property(self) -> None:
         """Test page property returns underlying page."""

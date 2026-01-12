@@ -1,7 +1,7 @@
 """
 Backend-agnostic actions for browser-use integration.
 
-These actions work with any BrowserBackendV0 implementation,
+These actions work with any BrowserBackend implementation,
 enabling Sentience grounding with browser-use or other frameworks.
 
 Usage with browser-use:
@@ -24,11 +24,11 @@ from typing import TYPE_CHECKING, Any, Literal
 from ..models import ActionResult, BBox, Snapshot
 
 if TYPE_CHECKING:
-    from .protocol_v0 import BrowserBackendV0
+    from .protocol import BrowserBackend
 
 
 async def click(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     target: BBox | dict[str, float] | tuple[float, float],
     button: Literal["left", "right", "middle"] = "left",
     click_count: int = 1,
@@ -38,7 +38,7 @@ async def click(
     Click at coordinates using the backend.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         target: Click target - BBox (clicks center), dict with x/y, or (x, y) tuple
         button: Mouse button to click
         click_count: Number of clicks (1=single, 2=double)
@@ -88,7 +88,7 @@ async def click(
 
 
 async def type_text(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     text: str,
     target: BBox | dict[str, float] | tuple[float, float] | None = None,
     clear_first: bool = False,
@@ -97,7 +97,7 @@ async def type_text(
     Type text, optionally clicking a target first.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         text: Text to type
         target: Optional click target before typing (BBox, dict, or tuple)
         clear_first: If True, select all and delete before typing
@@ -150,7 +150,7 @@ async def type_text(
 
 
 async def scroll(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     delta_y: float = 300,
     target: BBox | dict[str, float] | tuple[float, float] | None = None,
 ) -> ActionResult:
@@ -158,7 +158,7 @@ async def scroll(
     Scroll the page or element.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         delta_y: Scroll amount (positive=down, negative=up)
         target: Optional position for scroll (defaults to viewport center)
 
@@ -206,7 +206,7 @@ async def scroll(
 
 
 async def scroll_to_element(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     element_id: int,
     behavior: Literal["smooth", "instant", "auto"] = "instant",
     block: Literal["start", "center", "end", "nearest"] = "center",
@@ -215,7 +215,7 @@ async def scroll_to_element(
     Scroll element into view using JavaScript scrollIntoView.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         element_id: Element ID from snapshot (requires sentience_registry)
         behavior: Scroll behavior
         block: Vertical alignment
@@ -273,7 +273,7 @@ async def scroll_to_element(
 
 
 async def wait_for_stable(
-    backend: "BrowserBackendV0",
+    backend: "BrowserBackend",
     state: Literal["interactive", "complete"] = "complete",
     timeout_ms: int = 10000,
 ) -> ActionResult:
@@ -281,7 +281,7 @@ async def wait_for_stable(
     Wait for page to reach stable state.
 
     Args:
-        backend: BrowserBackendV0 implementation
+        backend: BrowserBackend implementation
         state: Target document.readyState
         timeout_ms: Maximum wait time
 

@@ -5,7 +5,7 @@ Demonstrates how to use AgentRuntime for runtime verification in agent loops.
 The AgentRuntime provides assertion predicates to verify browser state during execution.
 
 Key features:
-- BrowserBackendV0 protocol: Framework-agnostic browser integration
+- BrowserBackend protocol: Framework-agnostic browser integration
 - Predicate helpers: url_matches, url_contains, exists, not_exists, element_count
 - Combinators: all_of, any_of for complex conditions
 - Task completion: assert_done() for goal verification
@@ -44,7 +44,7 @@ async def main():
         page = await browser.new_page()
 
         # 3. Create AgentRuntime using from_sentience_browser factory
-        # This wraps the browser/page into the new BrowserBackendV0 architecture
+        # This wraps the browser/page into the new BrowserBackend architecture
         runtime = await AgentRuntime.from_sentience_browser(
             browser=browser,
             page=page,

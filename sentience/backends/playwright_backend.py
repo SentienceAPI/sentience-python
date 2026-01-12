@@ -1,5 +1,5 @@
 """
-Playwright backend implementation for BrowserBackendV0 protocol.
+Playwright backend implementation for BrowserBackend protocol.
 
 This wraps existing SentienceBrowser/AsyncSentienceBrowser to provide
 a unified interface, enabling code that works with both browser-use
@@ -26,7 +26,7 @@ import base64
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
-from .protocol_v0 import BrowserBackendV0, LayoutMetrics, ViewportInfo
+from .protocol import BrowserBackend, LayoutMetrics, ViewportInfo
 
 if TYPE_CHECKING:
     from playwright.async_api import Page as AsyncPage
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 class PlaywrightBackend:
     """
-    Playwright-based implementation of BrowserBackendV0.
+    Playwright-based implementation of BrowserBackend.
 
     Wraps a Playwright async Page to provide the standard backend interface.
     This enables using backend-agnostic actions with existing SentienceBrowser code.
@@ -191,4 +191,4 @@ class PlaywrightBackend:
 
 
 # Verify protocol compliance at import time
-assert isinstance(PlaywrightBackend.__new__(PlaywrightBackend), BrowserBackendV0)
+assert isinstance(PlaywrightBackend.__new__(PlaywrightBackend), BrowserBackend)

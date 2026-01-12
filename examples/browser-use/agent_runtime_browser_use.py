@@ -1,12 +1,12 @@
 """
 Example: Agent Runtime with browser-use Integration
 
-Demonstrates how to use AgentRuntime with browser-use library via BrowserBackendV0 protocol.
+Demonstrates how to use AgentRuntime with browser-use library via BrowserBackend protocol.
 This pattern enables framework-agnostic browser integration for agent verification loops.
 
 Key features:
 - BrowserUseAdapter: Wraps browser-use BrowserSession into CDPBackendV0
-- BrowserBackendV0 protocol: Minimal interface for browser operations
+- BrowserBackend protocol: Minimal interface for browser operations
 - Direct AgentRuntime construction: No need for from_sentience_browser factory
 
 Requirements:
@@ -58,7 +58,7 @@ async def main():
     await session.start()
 
     try:
-        # 3. Create BrowserBackendV0 using BrowserUseAdapter
+        # 3. Create BrowserBackend using BrowserUseAdapter
         # This wraps the browser-use session into the standard backend protocol
         adapter = BrowserUseAdapter(session)
         backend = await adapter.create_backend()

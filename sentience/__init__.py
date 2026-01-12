@@ -19,7 +19,7 @@ from .agent_runtime import AgentRuntime
 # Backend-agnostic actions (aliased to avoid conflict with existing actions)
 # Browser backends (for browser-use integration)
 from .backends import (
-    BrowserBackendV0,
+    BrowserBackend,
     BrowserUseAdapter,
     BrowserUseCDPTransport,
     CachedSnapshot,
@@ -132,7 +132,7 @@ __all__ = [
     "verify_extension_version",
     "verify_extension_version_async",
     # Browser backends (for browser-use integration)
-    "BrowserBackendV0",
+    "BrowserBackend",
     "CDPTransport",
     "CDPBackendV0",
     "PlaywrightBackend",
