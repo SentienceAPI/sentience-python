@@ -41,7 +41,12 @@ jobs:
         echo "=== Verifying assert_ method exists ==="
         grep -n "def assert_" sentience/agent_runtime.py
         echo "=== Checking for assertTrue (should NOT exist) ==="
-        grep -n "assertTrue" sentience/agent_runtime.py || echo "Good: no assertTrue found"
+        if grep -n "assertTrue" sentience/agent_runtime.py; then
+          echo "ERROR: Found assertTrue - this should have been removed!"
+          exit 1
+        else
+          echo "Good: no assertTrue found"
+        fi
 
     - name: Lint with pre-commit
       continue-on-error: true
