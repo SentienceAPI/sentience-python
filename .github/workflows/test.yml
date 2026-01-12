@@ -31,8 +31,10 @@ jobs:
 
     - name: Install dependencies
       run: |
-        pip install -e ".[dev]"
+        pip install --no-cache-dir -e ".[dev]"
         pip install pre-commit mypy types-requests
+        # Verify local install is used
+        python -c "import sentience.agent_runtime; import inspect; src = inspect.getsourcefile(sentience.agent_runtime); print(f'Using: {src}')"
 
     - name: Lint with pre-commit
       continue-on-error: true
