@@ -31,6 +31,8 @@ jobs:
 
     - name: Install dependencies
       run: |
+        pip cache purge || true
+        pip uninstall -y sentienceapi || true
         pip install --no-cache-dir -e ".[dev]"
         pip install pre-commit mypy types-requests
 
