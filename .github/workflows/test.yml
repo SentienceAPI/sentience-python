@@ -35,6 +35,7 @@ jobs:
         pip install pre-commit mypy types-requests
 
     - name: Verify source code
+      shell: bash
       run: |
         echo "=== Checking agent_runtime.py line 345 ==="
         sed -n '340,350p' sentience/agent_runtime.py
