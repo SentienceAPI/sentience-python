@@ -30,12 +30,13 @@ jobs:
         playwright install chromium
 
     - name: Install dependencies
+      shell: bash
       run: |
         pip cache purge || true
         pip uninstall -y sentienceapi || true
-        # Clean any bytecode cache
-        find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
-        find . -type f -name "*.pyc" -delete 2>/dev/null || true
+        # Clean any bytecode cache (cross-platform Python approach)
+        python -c "import pathlib; [p.unlink() for p in pathlib.Path('.').rglob('*.pyc')]" || true
+        python -c "import pathlib, shutil; [shutil.rmtree(p) for p in pathlib.Path('.').rglob('__pycache__') if p.is_dir()]" || true
         pip install --no-cache-dir -e ".[dev]"
         pip install pre-commit mypy types-requests
 
@@ -50,17 +51,31 @@ jobs:
     - name: Verify source code
       shell: bash
       run: |
-        echo "=== Checking agent_runtime.py line 345 ==="
-        sed -n '340,350p' sentience/agent_runtime.py
-        echo "=== Verifying assert_ method exists ==="
-        grep -n "def assert_" sentience/agent_runtime.py
-        echo "=== Checking for assertTrue (should NOT exist) ==="
-        if grep -n "assertTrue" sentience/agent_runtime.py; then
-          echo "ERROR: Found assertTrue - this should have been removed!"
-          exit 1
-        else
-          echo "Good: no assertTrue found"
-        fi
+        python << 'EOF'
+        # Check agent_runtime.py line 345
+        print("=== Checking agent_runtime.py line 345 ===")
+        with open('sentience/agent_runtime.py', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            print(''.join(lines[339:350]))
+        
+        # Verify assert_ method exists
+        print("\n=== Verifying assert_ method exists ===")
+        with open('sentience/agent_runtime.py', 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            for i, line in enumerate(lines, 1):
+                if 'def assert_' in line:
+                    print(f'{i}:{line}', end='')
+        
+        # Check for assertTrue (should NOT exist)
+        print("\n=== Checking for assertTrue (should NOT exist) ===")
+        with open('sentience/agent_runtime.py', 'r', encoding='utf-8') as f:
+            content = f.read()
+            if 'assertTrue' in content:
+                print('ERROR: Found assertTrue - this should have been removed!')
+                exit(1)
+            else:
+                print('Good: no assertTrue found')
+        EOF
 
     - name: Lint with pre-commit
       continue-on-error: true
