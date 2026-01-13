@@ -115,8 +115,16 @@ jobs:
         echo ""
         echo "=== Installed package assert_done (from imported module) ==="
         python << 'PYEOF'
+        import sys
         import inspect
         import os
+        
+        # Set UTF-8 encoding for Windows compatibility
+        if sys.platform == 'win32':
+            import io
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        
         from sentience.agent_runtime import AgentRuntime
         
         # Verify it's using local source
@@ -143,7 +151,7 @@ jobs:
                 if 'self.assertTrue(' in line:
                     print(f'  Line {i}: {line.strip()}')
             print('\nThe source file in the repo should be checked and fixed.')
-            exit(1)
+            sys.exit(1)
         elif 'self.assert_(' in source:
             print('OK: assert_done uses self.assert_( correctly')
         else:
@@ -265,8 +273,16 @@ jobs:
       run: |
         # Final verification before tests - ensure we're using the right code
         python << 'PYEOF'
-        import sentience.agent_runtime
+        import sys
         import inspect
+        
+        # Set UTF-8 encoding for Windows compatibility
+        if sys.platform == 'win32':
+            import io
+            sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+            sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        
+        import sentience.agent_runtime
         
         print("=== Final Pre-Test Verification ===")
         src = inspect.getsource(sentience.agent_runtime.AgentRuntime.assert_done)
@@ -276,7 +292,7 @@ jobs:
         print("\n=== Analysis ===")
         
         if 'self.assertTrue(' in src:
-            print('✗ ERROR: Found self.assertTrue( in installed package!')
+            print('ERROR: Found self.assertTrue( in installed package!')
             print('The source code on this branch still has the bug.')
             print('\nProblematic lines:')
             for i, line in enumerate(src.split('\n'), 1):
@@ -285,13 +301,13 @@ jobs:
             print('\nThis branch needs to be updated with the fix.')
             print('The fix commit is: c7a43a9 or equivalent')
             print('Fix: Replace self.assertTrue( with self.assert_( in the code above')
-            exit(1)
+            sys.exit(1)
         elif 'self.assert_(' in src:
-            print('✓ OK: assert_done uses self.assert_( correctly')
+            print('OK: assert_done uses self.assert_( correctly')
             print('Tests should pass.')
         else:
-            print('? WARNING: Could not find assert_ method call in assert_done')
-            exit(1)
+            print('WARNING: Could not find assert_ method call in assert_done')
+            sys.exit(1)
         PYEOF
         pytest tests/ -v
       env:
