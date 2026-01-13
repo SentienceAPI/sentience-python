@@ -33,6 +33,9 @@ jobs:
       run: |
         pip cache purge || true
         pip uninstall -y sentienceapi || true
+        # Clean any bytecode cache
+        find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
+        find . -type f -name "*.pyc" -delete 2>/dev/null || true
         pip install --no-cache-dir -e ".[dev]"
         pip install pre-commit mypy types-requests
 
@@ -85,6 +88,22 @@ jobs:
         else
           echo "Extension directory not found, skipping build"
         fi
+
+    - name: Pre-test verification
+      shell: bash
+      run: |
+        echo "=== Final check before tests ==="
+        python -c "
+from sentience.agent_runtime import AgentRuntime
+import inspect
+source = inspect.getsource(AgentRuntime.assert_done)
+print('assert_done source:')
+print(source)
+if 'assertTrue' in source:
+    print('ERROR: assertTrue found in assert_done!')
+    exit(1)
+print('OK: assert_ is used correctly')
+"
 
     - name: Run tests
       run: |
