@@ -115,20 +115,32 @@ jobs:
         echo "=== Final check before tests ==="
         python << 'EOF'
         import re
+        import os
         
         # Check the source file directly (not the installed package)
-        with open('sentience/agent_runtime.py', 'r', encoding='utf-8') as f:
+        file_path = 'sentience/agent_runtime.py'
+        if not os.path.exists(file_path):
+            print(f'ERROR: {file_path} not found!')
+            exit(1)
+        
+        with open(file_path, 'r', encoding='utf-8') as f:
             content = f.read()
+            lines = content.split('\n')
         
         # Check for the problematic pattern: self.assertTrue(
         # This is the bug we're checking for - it should be self.assert_( instead
-        if re.search(r'self\.assertTrue\s*\(', content):
+        problematic_lines = []
+        for i, line in enumerate(lines, 1):
+            if re.search(r'self\.assertTrue\s*\(', line):
+                problematic_lines.append((i, line.strip()))
+        
+        if problematic_lines:
             print('ERROR: Found self.assertTrue( in agent_runtime.py')
             print('This should be self.assert_( instead!')
-            print('\nSearching for the problematic line...')
-            for i, line in enumerate(content.split('\n'), 1):
-                if re.search(r'self\.assertTrue\s*\(', line):
-                    print(f'Line {i}: {line.strip()}')
+            print(f'\nFound {len(problematic_lines)} problematic line(s):')
+            for line_num, line_content in problematic_lines:
+                print(f'Line {line_num}: {line_content}')
+            print('\nTo fix: Replace self.assertTrue( with self.assert_( in the code above')
             exit(1)
         
         # Verify that self.assert_( is used (positive check)
@@ -136,7 +148,7 @@ jobs:
             print('OK: self.assert_ is used correctly (no self.assertTrue found)')
         else:
             print('WARNING: self.assert_( not found in agent_runtime.py')
-            print('This might indicate a different issue')
+            print('This might indicate the code needs to be updated')
         EOF
 
     - name: Run tests
