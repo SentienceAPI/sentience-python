@@ -93,17 +93,7 @@ jobs:
       shell: bash
       run: |
         echo "=== Final check before tests ==="
-        python -c "
-from sentience.agent_runtime import AgentRuntime
-import inspect
-source = inspect.getsource(AgentRuntime.assert_done)
-print('assert_done source:')
-print(source)
-if 'assertTrue' in source:
-    print('ERROR: assertTrue found in assert_done!')
-    exit(1)
-print('OK: assert_ is used correctly')
-"
+        python -c "from sentience.agent_runtime import AgentRuntime; import inspect; source = inspect.getsource(AgentRuntime.assert_done); print('assert_done source:'); print(source); exit(1) if 'assertTrue' in source else print('OK: assert_ is used correctly')"
 
     - name: Run tests
       run: |
