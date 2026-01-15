@@ -2,6 +2,8 @@
 Pydantic models for Sentience SDK - matches spec/snapshot.schema.json
 """
 
+from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -90,7 +92,7 @@ class Element(BaseModel):
     # Layout-derived metadata (internal-only in v0, not exposed in API responses)
     # Per ChatGPT feedback: explicitly optional to prevent users assuming layout is always present
     # Note: This field is marked with skip_serializing_if in Rust, so it won't appear in API responses
-    layout: "LayoutHints | None" = None
+    layout: LayoutHints | None = None
 
 
 class GridPosition(BaseModel):
@@ -153,6 +155,8 @@ class Snapshot(BaseModel):
     requires_license: bool | None = None
     # Phase 2: Dominant group key for ordinal selection
     dominant_group_key: str | None = None  # The most common group_key (main content group)
+    # Phase 2: Runtime stability/debug info (confidence/reasons/metrics)
+    diagnostics: SnapshotDiagnostics | None = None
 
     def save(self, filepath: str) -> None:
         """Save snapshot as JSON file"""
@@ -160,6 +164,22 @@ class Snapshot(BaseModel):
 
         with open(filepath, "w", encoding="utf-8") as f:
             json.dump(self.model_dump(), f, indent=2)
+
+
+class SnapshotDiagnosticsMetrics(BaseModel):
+    ready_state: str | None = None
+    quiet_ms: float | None = None
+    node_count: int | None = None
+    interactive_count: int | None = None
+    raw_elements_count: int | None = None
+
+
+class SnapshotDiagnostics(BaseModel):
+    """Runtime stability/debug information (reserved for diagnostics, not ML metadata)."""
+
+    confidence: float | None = None
+    reasons: list[str] = []
+    metrics: SnapshotDiagnosticsMetrics | None = None
 
     def get_grid_bounds(self, grid_id: int | None = None) -> list[GridInfo]:
         """
@@ -290,7 +310,7 @@ class Snapshot(BaseModel):
         return grid_infos
 
     @staticmethod
-    def _infer_grid_label(elements: list["Element"]) -> str | None:
+    def _infer_grid_label(elements: list[Element]) -> str | None:
         """
         Infer grid label from element patterns using text fingerprinting (best-effort heuristic).
 
@@ -685,7 +705,7 @@ class StorageState(BaseModel):
     )
 
     @classmethod
-    def from_dict(cls, data: dict) -> "StorageState":
+    def from_dict(cls, data: dict) -> StorageState:
         """
         Create StorageState from dictionary (e.g., loaded from JSON).
 
