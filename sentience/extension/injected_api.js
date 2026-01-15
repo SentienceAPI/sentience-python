@@ -112,7 +112,7 @@
                     if (labelEl) {
                         let text = "";
                         try {
-                            if (text = (labelEl.innerText || "").trim(), !text && labelEl.textContent && (text = labelEl.textContent.trim()),
+                            if (text = (labelEl.innerText || "").trim(), !text && labelEl.textContent && (text = labelEl.textContent.trim()), 
                             !text && labelEl.getAttribute) {
                                 const ariaLabel = labelEl.getAttribute("aria-label");
                                 ariaLabel && (text = ariaLabel.trim());
@@ -158,7 +158,12 @@
         return null;
     }
     function getText(el) {
-        return el.getAttribute("aria-label") ? el.getAttribute("aria-label") : "INPUT" === el.tagName ? el.value || el.placeholder || "" : "IMG" === el.tagName ? el.alt || "" : (el.innerText || "").replace(/\s+/g, " ").trim().substring(0, 100);
+        if (el.getAttribute("aria-label")) return el.getAttribute("aria-label");
+        if ("INPUT" === el.tagName) {
+            const t = el.getAttribute && el.getAttribute("type") || el.type || "";
+            return "password" === String(t).toLowerCase() ? el.placeholder || "" : el.value || el.placeholder || "";
+        }
+        return "IMG" === el.tagName ? el.alt || "" : (el.innerText || "").replace(/\s+/g, " ").trim().substring(0, 100);
     }
     function getClassName(el) {
         if (!el || !el.className) return "";
@@ -268,11 +273,17 @@
         try {
             !1 !== options.waitForStability && await async function(options = {}) {
                 const {minNodeCount: minNodeCount = 500, quietPeriod: quietPeriod = 200, maxWait: maxWait = 5e3} = options, startTime = Date.now();
+                try {
+                    window.__sentience_lastMutationTs = performance.now();
+                } catch (e) {}
                 return new Promise(resolve => {
                     if (document.querySelectorAll("*").length >= minNodeCount) {
                         let lastChange = Date.now();
                         const observer = new MutationObserver(() => {
                             lastChange = Date.now();
+                            try {
+                                window.__sentience_lastMutationTs = performance.now();
+                            } catch (e) {}
                         });
                         observer.observe(document.body, {
                             childList: !0,
@@ -281,18 +292,24 @@
                         });
                         const checkStable = () => {
                             const timeSinceLastChange = Date.now() - lastChange, totalWait = Date.now() - startTime;
-                            timeSinceLastChange >= quietPeriod || totalWait >= maxWait ? (observer.disconnect(),
+                            timeSinceLastChange >= quietPeriod || totalWait >= maxWait ? (observer.disconnect(), 
                             resolve()) : setTimeout(checkStable, 50);
                         };
                         checkStable();
                     } else {
                         const observer = new MutationObserver(() => {
                             const currentCount = document.querySelectorAll("*").length, totalWait = Date.now() - startTime;
+                            try {
+                                window.__sentience_lastMutationTs = performance.now();
+                            } catch (e) {}
                             if (currentCount >= minNodeCount) {
                                 observer.disconnect();
                                 let lastChange = Date.now();
                                 const quietObserver = new MutationObserver(() => {
                                     lastChange = Date.now();
+                                    try {
+                                        window.__sentience_lastMutationTs = performance.now();
+                                    } catch (e) {}
                                 });
                                 quietObserver.observe(document.body, {
                                     childList: !0,
@@ -301,7 +318,7 @@
                                 });
                                 const checkQuiet = () => {
                                     const timeSinceLastChange = Date.now() - lastChange, totalWait = Date.now() - startTime;
-                                    timeSinceLastChange >= quietPeriod || totalWait >= maxWait ? (quietObserver.disconnect(),
+                                    timeSinceLastChange >= quietPeriod || totalWait >= maxWait ? (quietObserver.disconnect(), 
                                     resolve()) : setTimeout(checkQuiet, 50);
                                 };
                                 checkQuiet();
@@ -323,14 +340,15 @@
                 if (!el.getBoundingClientRect) return;
                 const rect = el.getBoundingClientRect();
                 if (rect.width < 5 || rect.height < 5) return;
-                if ("span" === el.tagName.toLowerCase()) {
+                const tagName = el.tagName.toLowerCase();
+                if ("span" === tagName) {
                     if (el.closest("a")) return;
                     const childLink = el.querySelector("a[href]");
                     if (childLink && childLink.href) return;
                     options.debug && el.className && el.className.includes("titleline");
                 }
                 window.sentience_registry[idx] = el;
-                const semanticText = function(el, options = {}) {
+                const inputType = "input" === tagName ? toSafeString(el.getAttribute && el.getAttribute("type") || el.type || null) : null, isPasswordInput = inputType && "password" === inputType.toLowerCase(), semanticText = function(el, options = {}) {
                     if (!el) return {
                         text: "",
                         source: null
@@ -341,10 +359,10 @@
                         source: "explicit_aria_label"
                     };
                     if ("INPUT" === el.tagName) {
-                        const value = (el.value || el.placeholder || "").trim();
+                        const t = el.getAttribute && el.getAttribute("type") || el.type || "", isPassword = "password" === String(t).toLowerCase(), value = (isPassword ? el.placeholder || "" : el.value || el.placeholder || "").trim();
                         if (value) return {
                             text: value,
-                            source: "input_value"
+                            source: isPassword ? "input_placeholder" : "input_value"
                         };
                     }
                     if ("IMG" === el.tagName) {
@@ -417,9 +435,53 @@
                     }
                     return null;
                 }(el);
+                let safeValue = null, valueRedacted = null;
+                try {
+                    if (void 0 !== el.value || el.getAttribute && null !== el.getAttribute("value")) if (isPasswordInput) safeValue = null, 
+                    valueRedacted = "true"; else {
+                        const rawValue = void 0 !== el.value ? String(el.value) : String(el.getAttribute("value"));
+                        safeValue = rawValue.length > 200 ? rawValue.substring(0, 200) : rawValue, valueRedacted = "false";
+                    }
+                } catch (e) {}
+                const accessibleName = toSafeString(function(el) {
+                    if (!el || !el.getAttribute) return "";
+                    const ariaLabel = el.getAttribute("aria-label");
+                    if (ariaLabel && ariaLabel.trim()) return ariaLabel.trim().substring(0, 200);
+                    const labelledBy = el.getAttribute("aria-labelledby");
+                    if (labelledBy && labelledBy.trim()) {
+                        const ids = labelledBy.split(/\s+/).filter(id => id.trim()), texts = [];
+                        for (const id of ids) try {
+                            const ref = document.getElementById(id);
+                            if (!ref) continue;
+                            const txt = (ref.innerText || ref.textContent || ref.getAttribute?.("aria-label") || "").toString().trim();
+                            txt && texts.push(txt);
+                        } catch (e) {}
+                        if (texts.length > 0) return texts.join(" ").substring(0, 200);
+                    }
+                    try {
+                        if (el.labels && el.labels.length > 0) {
+                            const t = (el.labels[0].innerText || el.labels[0].textContent || "").toString().trim();
+                            if (t) return t.substring(0, 200);
+                        }
+                    } catch (e) {}
+                    try {
+                        const parentLabel = el.closest && el.closest("label");
+                        if (parentLabel) {
+                            const t = (parentLabel.innerText || parentLabel.textContent || "").toString().trim();
+                            if (t) return t.substring(0, 200);
+                        }
+                    } catch (e) {}
+                    const tag = (el.tagName || "").toUpperCase();
+                    if ("INPUT" === tag || "TEXTAREA" === tag) {
+                        const ph = (el.getAttribute("placeholder") || "").toString().trim();
+                        if (ph) return ph.substring(0, 200);
+                    }
+                    const title = el.getAttribute("title");
+                    return title && title.trim() ? title.trim().substring(0, 200) : "";
+                }(el) || null);
                 rawData.push({
                     id: idx,
-                    tag: el.tagName.toLowerCase(),
+                    tag: tagName,
                     rect: {
                         x: rect.x,
                         y: rect.y,
@@ -441,14 +503,21 @@
                     attributes: {
                         role: toSafeString(el.getAttribute("role")),
                         type_: toSafeString(el.getAttribute("type")),
+                        input_type: inputType,
                         aria_label: "explicit_aria_label" === semanticText?.source ? semanticText.text : toSafeString(el.getAttribute("aria-label")),
+                        name: accessibleName,
                         inferred_label: semanticText?.source && ![ "explicit_aria_label", "input_value", "img_alt", "inner_text" ].includes(semanticText.source) ? toSafeString(semanticText.text) : null,
                         label_source: semanticText?.source || null,
                         inferred_role: inferredRole ? toSafeString(inferredRole) : null,
                         href: toSafeString(el.href || el.getAttribute("href") || el.closest && el.closest("a")?.href || null),
                         class: toSafeString(getClassName(el)),
-                        value: void 0 !== el.value ? toSafeString(el.value) : toSafeString(el.getAttribute("value")),
-                        checked: void 0 !== el.checked ? String(el.checked) : null
+                        value: null !== safeValue ? toSafeString(safeValue) : null,
+                        value_redacted: valueRedacted,
+                        checked: void 0 !== el.checked ? String(el.checked) : null,
+                        disabled: void 0 !== el.disabled ? String(el.disabled) : null,
+                        aria_checked: toSafeString(el.getAttribute("aria-checked")),
+                        aria_disabled: toSafeString(el.getAttribute("aria-disabled")),
+                        aria_expanded: toSafeString(el.getAttribute("aria-expanded"))
                     },
                     text: toSafeString(textVal),
                     in_viewport: inView,
@@ -468,8 +537,8 @@
                             const requestId = `iframe-${idx}-${Date.now()}`, timeout = setTimeout(() => {
                                 resolve(null);
                             }, 5e3), listener = event => {
-                                "SENTIENCE_IFRAME_SNAPSHOT_RESPONSE" === event.data?.type && event.data, "SENTIENCE_IFRAME_SNAPSHOT_RESPONSE" === event.data?.type && event.data?.requestId === requestId && (clearTimeout(timeout),
-                                window.removeEventListener("message", listener), event.data.error ? resolve(null) : (event.data.snapshot,
+                                "SENTIENCE_IFRAME_SNAPSHOT_RESPONSE" === event.data?.type && event.data, "SENTIENCE_IFRAME_SNAPSHOT_RESPONSE" === event.data?.type && event.data?.requestId === requestId && (clearTimeout(timeout), 
+                                window.removeEventListener("message", listener), event.data.error ? resolve(null) : (event.data.snapshot, 
                                 resolve({
                                     iframe: iframe,
                                     data: event.data.snapshot,
@@ -485,7 +554,7 @@
                                         ...options,
                                         collectIframes: !0
                                     }
-                                }, "*") : (clearTimeout(timeout), window.removeEventListener("message", listener),
+                                }, "*") : (clearTimeout(timeout), window.removeEventListener("message", listener), 
                                 resolve(null));
                             } catch (error) {
                                 clearTimeout(timeout), window.removeEventListener("message", listener), resolve(null);
@@ -535,7 +604,7 @@
                     }, 25e3), listener = e => {
                         if ("SENTIENCE_SNAPSHOT_RESULT" === e.data.type && e.data.requestId === requestId) {
                             if (resolved) return;
-                            resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener),
+                            resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
                             e.data.error ? reject(new Error(e.data.error)) : resolve({
                                 elements: e.data.elements,
                                 raw_elements: e.data.raw_elements,
@@ -552,7 +621,7 @@
                             options: options
                         }, "*");
                     } catch (error) {
-                        resolved || (resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener),
+                        resolved || (resolved = !0, clearTimeout(timeout), window.removeEventListener("message", listener), 
                         reject(new Error(`Failed to send snapshot request: ${error.message}`)));
                     }
                 });
@@ -562,7 +631,7 @@
             options.screenshot && (screenshot = await function(options) {
                 return new Promise(resolve => {
                     const requestId = Math.random().toString(36).substring(7), listener = e => {
-                        "SENTIENCE_SCREENSHOT_RESULT" === e.data.type && e.data.requestId === requestId && (window.removeEventListener("message", listener),
+                        "SENTIENCE_SCREENSHOT_RESULT" === e.data.type && e.data.requestId === requestId && (window.removeEventListener("message", listener), 
                         resolve(e.data.screenshot));
                     };
                     window.addEventListener("message", listener), window.postMessage({
@@ -576,6 +645,17 @@
             }(options.screenshot));
             const cleanedElements = cleanElement(processed.elements), cleanedRawElements = cleanElement(processed.raw_elements);
             cleanedElements.length, cleanedRawElements.length;
+            let diagnostics;
+            try {
+                const lastMutationTs = window.__sentience_lastMutationTs, now = performance.now(), quietMs = "number" == typeof lastMutationTs && Number.isFinite(lastMutationTs) ? Math.max(0, now - lastMutationTs) : null, nodeCount = document.querySelectorAll("*").length;
+                diagnostics = {
+                    metrics: {
+                        ready_state: document.readyState || null,
+                        quiet_ms: quietMs,
+                        node_count: nodeCount
+                    }
+                };
+            } catch (e) {}
             return {
                 status: "success",
                 url: window.location.href,
@@ -585,7 +665,8 @@
                 },
                 elements: cleanedElements,
                 raw_elements: cleanedRawElements,
-                screenshot: screenshot
+                screenshot: screenshot,
+                diagnostics: diagnostics
             };
         } catch (error) {
             return {
@@ -609,15 +690,15 @@
                 }
                 if (node.nodeType !== Node.ELEMENT_NODE) return;
                 const tag = node.tagName.toLowerCase();
-                if ("h1" === tag && (markdown += "\n# "), "h2" === tag && (markdown += "\n## "),
-                "h3" === tag && (markdown += "\n### "), "li" === tag && (markdown += "\n- "), insideLink || "p" !== tag && "div" !== tag && "br" !== tag || (markdown += "\n"),
-                "strong" !== tag && "b" !== tag || (markdown += "**"), "em" !== tag && "i" !== tag || (markdown += "_"),
-                "a" === tag && (markdown += "[", insideLink = !0), node.shadowRoot ? Array.from(node.shadowRoot.childNodes).forEach(walk) : node.childNodes.forEach(walk),
+                if ("h1" === tag && (markdown += "\n# "), "h2" === tag && (markdown += "\n## "), 
+                "h3" === tag && (markdown += "\n### "), "li" === tag && (markdown += "\n- "), insideLink || "p" !== tag && "div" !== tag && "br" !== tag || (markdown += "\n"), 
+                "strong" !== tag && "b" !== tag || (markdown += "**"), "em" !== tag && "i" !== tag || (markdown += "_"), 
+                "a" === tag && (markdown += "[", insideLink = !0), node.shadowRoot ? Array.from(node.shadowRoot.childNodes).forEach(walk) : node.childNodes.forEach(walk), 
                 "a" === tag) {
                     const href = node.getAttribute("href");
                     markdown += href ? `](${href})` : "]", insideLink = !1;
                 }
-                "strong" !== tag && "b" !== tag || (markdown += "**"), "em" !== tag && "i" !== tag || (markdown += "_"),
+                "strong" !== tag && "b" !== tag || (markdown += "**"), "em" !== tag && "i" !== tag || (markdown += "_"), 
                 insideLink || "h1" !== tag && "h2" !== tag && "h3" !== tag && "p" !== tag && "div" !== tag || (markdown += "\n");
             }(tempDiv), markdown.replace(/\n{3,}/g, "\n\n").trim();
         }(document.body) : function(root) {
@@ -630,7 +711,7 @@
                         const style = window.getComputedStyle(node);
                         if ("none" === style.display || "hidden" === style.visibility) return;
                         const isBlock = "block" === style.display || "flex" === style.display || "P" === node.tagName || "DIV" === node.tagName;
-                        isBlock && (text += " "), node.shadowRoot ? Array.from(node.shadowRoot.childNodes).forEach(walk) : node.childNodes.forEach(walk),
+                        isBlock && (text += " "), node.shadowRoot ? Array.from(node.shadowRoot.childNodes).forEach(walk) : node.childNodes.forEach(walk), 
                         isBlock && (text += "\n");
                     }
                 } else text += node.textContent;
@@ -729,25 +810,25 @@
     }
     function startRecording(options = {}) {
         const {highlightColor: highlightColor = "#ff0000", successColor: successColor = "#00ff00", autoDisableTimeout: autoDisableTimeout = 18e5, keyboardShortcut: keyboardShortcut = "Ctrl+Shift+I"} = options;
-        if (!window.sentience_registry || 0 === window.sentience_registry.length) return alert("Registry empty. Run `await window.sentience.snapshot()` first!"),
+        if (!window.sentience_registry || 0 === window.sentience_registry.length) return alert("Registry empty. Run `await window.sentience.snapshot()` first!"), 
         () => {};
         window.sentience_registry_map = new Map, window.sentience_registry.forEach((el, idx) => {
             el && window.sentience_registry_map.set(el, idx);
         });
         let highlightBox = document.getElementById("sentience-highlight-box");
-        highlightBox || (highlightBox = document.createElement("div"), highlightBox.id = "sentience-highlight-box",
-        highlightBox.style.cssText = `\n            position: fixed;\n            pointer-events: none;\n            z-index: 2147483647;\n            border: 2px solid ${highlightColor};\n            background: rgba(255, 0, 0, 0.1);\n            display: none;\n            transition: all 0.1s ease;\n            box-sizing: border-box;\n        `,
+        highlightBox || (highlightBox = document.createElement("div"), highlightBox.id = "sentience-highlight-box", 
+        highlightBox.style.cssText = `\n            position: fixed;\n            pointer-events: none;\n            z-index: 2147483647;\n            border: 2px solid ${highlightColor};\n            background: rgba(255, 0, 0, 0.1);\n            display: none;\n            transition: all 0.1s ease;\n            box-sizing: border-box;\n        `, 
         document.body.appendChild(highlightBox));
         let recordingIndicator = document.getElementById("sentience-recording-indicator");
-        recordingIndicator || (recordingIndicator = document.createElement("div"), recordingIndicator.id = "sentience-recording-indicator",
-        recordingIndicator.style.cssText = `\n            position: fixed;\n            top: 0;\n            left: 0;\n            right: 0;\n            height: 3px;\n            background: ${highlightColor};\n            z-index: 2147483646;\n            pointer-events: none;\n        `,
+        recordingIndicator || (recordingIndicator = document.createElement("div"), recordingIndicator.id = "sentience-recording-indicator", 
+        recordingIndicator.style.cssText = `\n            position: fixed;\n            top: 0;\n            left: 0;\n            right: 0;\n            height: 3px;\n            background: ${highlightColor};\n            z-index: 2147483646;\n            pointer-events: none;\n        `, 
         document.body.appendChild(recordingIndicator)), recordingIndicator.style.display = "block";
         const mouseOverHandler = e => {
             const el = e.target;
             if (!el || el === highlightBox || el === recordingIndicator) return;
             const rect = el.getBoundingClientRect();
-            highlightBox.style.display = "block", highlightBox.style.top = rect.top + window.scrollY + "px",
-            highlightBox.style.left = rect.left + window.scrollX + "px", highlightBox.style.width = rect.width + "px",
+            highlightBox.style.display = "block", highlightBox.style.top = rect.top + window.scrollY + "px", 
+            highlightBox.style.left = rect.left + window.scrollX + "px", highlightBox.style.width = rect.width + "px", 
             highlightBox.style.height = rect.height + "px";
         }, clickHandler = e => {
             e.preventDefault(), e.stopPropagation();
@@ -824,7 +905,7 @@
                 debug_snapshot: rawData
             }, jsonString = JSON.stringify(snippet, null, 2);
             navigator.clipboard.writeText(jsonString).then(() => {
-                highlightBox.style.border = `2px solid ${successColor}`, highlightBox.style.background = "rgba(0, 255, 0, 0.2)",
+                highlightBox.style.border = `2px solid ${successColor}`, highlightBox.style.background = "rgba(0, 255, 0, 0.2)", 
                 setTimeout(() => {
                     highlightBox.style.border = `2px solid ${highlightColor}`, highlightBox.style.background = "rgba(255, 0, 0, 0.1)";
                 }, 500);
@@ -834,15 +915,15 @@
         };
         let timeoutId = null;
         const stopRecording = () => {
-            document.removeEventListener("mouseover", mouseOverHandler, !0), document.removeEventListener("click", clickHandler, !0),
-            document.removeEventListener("keydown", keyboardHandler, !0), timeoutId && (clearTimeout(timeoutId),
-            timeoutId = null), highlightBox && (highlightBox.style.display = "none"), recordingIndicator && (recordingIndicator.style.display = "none"),
+            document.removeEventListener("mouseover", mouseOverHandler, !0), document.removeEventListener("click", clickHandler, !0), 
+            document.removeEventListener("keydown", keyboardHandler, !0), timeoutId && (clearTimeout(timeoutId), 
+            timeoutId = null), highlightBox && (highlightBox.style.display = "none"), recordingIndicator && (recordingIndicator.style.display = "none"), 
             window.sentience_registry_map && window.sentience_registry_map.clear(), window.sentience_stopRecording === stopRecording && delete window.sentience_stopRecording;
         }, keyboardHandler = e => {
-            (e.ctrlKey || e.metaKey) && e.shiftKey && "I" === e.key && (e.preventDefault(),
+            (e.ctrlKey || e.metaKey) && e.shiftKey && "I" === e.key && (e.preventDefault(), 
             stopRecording());
         };
-        return document.addEventListener("mouseover", mouseOverHandler, !0), document.addEventListener("click", clickHandler, !0),
+        return document.addEventListener("mouseover", mouseOverHandler, !0), document.addEventListener("click", clickHandler, !0), 
         document.addEventListener("keydown", keyboardHandler, !0), autoDisableTimeout > 0 && (timeoutId = setTimeout(() => {
             stopRecording();
         }, autoDisableTimeout)), window.sentience_stopRecording = stopRecording, stopRecording;
