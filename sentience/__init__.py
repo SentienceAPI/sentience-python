@@ -114,9 +114,17 @@ from .verification import (
     custom,
     element_count,
     exists,
+    is_checked,
+    is_collapsed,
+    is_disabled,
+    is_enabled,
+    is_expanded,
+    is_unchecked,
     not_exists,
     url_contains,
     url_matches,
+    value_contains,
+    value_equals,
 )
 from .visual_agent import SentienceVisualAgent, SentienceVisualAgentAsync
 from .wait import wait_for

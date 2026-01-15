@@ -378,3 +378,199 @@ def custom(check_fn: Callable[[AssertContext], bool], label: str = "custom") -> 
             )
 
     return _pred
+
+
+# ============================================================================
+# v1 state-aware predicates (deterministic, schema-driven)
+# ============================================================================
+
+
+def is_enabled(selector: str) -> Predicate:
+    """Passes if any matched element is not disabled (disabled=None treated as enabled)."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        if not matches:
+            return AssertOutcome(
+                passed=False,
+                reason=f"no elements matched selector: {selector}",
+                details={"selector": selector, "matched": 0},
+            )
+
+        ok = any(m.disabled is not True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"all matched elements are disabled: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def is_disabled(selector: str) -> Predicate:
+    """Passes if any matched element is disabled."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(m.disabled is True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"no matched elements are disabled: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def is_checked(selector: str) -> Predicate:
+    """Passes if any matched element is checked."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(m.checked is True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"no matched elements are checked: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def is_unchecked(selector: str) -> Predicate:
+    """Passes if any matched element is not checked (checked=None treated as unchecked)."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(m.checked is not True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"all matched elements are checked: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def value_equals(selector: str, expected: str) -> Predicate:
+    """Passes if any matched element has value exactly equal to expected."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any((m.value or "") == expected for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"no matched elements had value == '{expected}'",
+            details={"selector": selector, "expected": expected, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def value_contains(selector: str, substring: str) -> Predicate:
+    """Passes if any matched element value contains substring (case-insensitive)."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(substring.lower() in (m.value or "").lower() for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"no matched elements had value containing '{substring}'",
+            details={"selector": selector, "substring": substring, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def is_expanded(selector: str) -> Predicate:
+    """Passes if any matched element is expanded."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(m.expanded is True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"no matched elements are expanded: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred
+
+
+def is_collapsed(selector: str) -> Predicate:
+    """Passes if any matched element is not expanded (expanded=None treated as collapsed)."""
+
+    def _pred(ctx: AssertContext) -> AssertOutcome:
+        snap = ctx.snapshot
+        if snap is None:
+            return AssertOutcome(
+                passed=False, reason="no snapshot available", details={"selector": selector}
+            )
+
+        from .query import query
+
+        matches = query(snap, selector)
+        ok = any(m.expanded is not True for m in matches)
+        return AssertOutcome(
+            passed=ok,
+            reason="" if ok else f"all matched elements are expanded: {selector}",
+            details={"selector": selector, "matched": len(matches)},
+        )
+
+    return _pred

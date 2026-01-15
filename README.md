@@ -37,7 +37,7 @@ from sentience.tracing import Tracer, JsonlTraceSink
 async def main():
     # Create tracer
     tracer = Tracer(run_id="my-run", sink=JsonlTraceSink("trace.jsonl"))
-    
+
     # Create browser and runtime
     async with AsyncSentienceBrowser() as browser:
         page = await browser.new_page()
@@ -46,12 +46,12 @@ async def main():
             page=page,
             tracer=tracer
         )
-        
+
         # Navigate and take snapshot
         await page.goto("https://example.com")
         runtime.begin_step("Verify page loaded")
         await runtime.snapshot()
-        
+
         # Run assertions (Jest-style)
         runtime.assert_(url_contains("example.com"), label="on_correct_domain")
         runtime.assert_(exists("role=heading"), label="has_heading")
@@ -59,11 +59,11 @@ async def main():
             exists("role=button"),
             exists("role=link")
         ]), label="has_interactive_elements")
-        
+
         # Check task completion
         if runtime.assert_done(exists("text~'Example'"), label="task_complete"):
             print("✅ Task completed!")
-        
+
         print(f"Task done: {runtime.is_task_done}")
 
 asyncio.run(main())

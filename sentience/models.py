@@ -64,6 +64,24 @@ class Element(BaseModel):
     # Hyperlink URL (for link elements)
     href: str | None = None
 
+    # ===== v1 state-aware assertion fields (optional) =====
+    # Best-effort accessible name/label for controls (distinct from visible text)
+    name: str | None = None
+    # Current value for inputs/textarea/select (PII-aware: may be omitted/redacted)
+    value: str | None = None
+    # Input type (e.g., "text", "email", "password")
+    input_type: str | None = None
+    # Whether value was redacted for privacy
+    value_redacted: bool | None = None
+    # Normalized boolean states (best-effort)
+    checked: bool | None = None
+    disabled: bool | None = None
+    expanded: bool | None = None
+    # Raw ARIA state strings (tri-state / debugging)
+    aria_checked: str | None = None
+    aria_disabled: str | None = None
+    aria_expanded: str | None = None
+
     # Phase 3.2: Pre-computed dominant group membership (uses fuzzy matching)
     # This field is computed by the gateway so downstream consumers don't need to
     # implement fuzzy matching logic themselves.
