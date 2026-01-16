@@ -96,6 +96,7 @@ class ActionExecutor:
                 "element_id": element_id,
                 "outcome": result.outcome,
                 "url_changed": result.url_changed,
+                "cursor": getattr(result, "cursor", None),
             }
 
         # Parse TYPE(42, "hello world")
@@ -170,6 +171,7 @@ class ActionExecutor:
                 "element_id": element_id,
                 "outcome": result.outcome,
                 "url_changed": result.url_changed,
+                "cursor": getattr(result, "cursor", None),
             }
 
         # Parse TYPE(42, "hello world")

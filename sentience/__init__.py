@@ -43,6 +43,7 @@ from .browser import SentienceBrowser
 # Tracing (v0.12.0+)
 from .cloud_tracing import CloudTraceSink, SentienceLogger
 from .conversational_agent import ConversationalAgent
+from .cursor_policy import CursorPolicy
 from .expect import expect
 from .generator import ScriptGenerator, generate
 from .inspector import Inspector, inspect
@@ -172,6 +173,7 @@ __all__ = [
     "press",
     "scroll_to",
     "click_rect",
+    "CursorPolicy",
     "wait_for",
     "expect",
     "Inspector",

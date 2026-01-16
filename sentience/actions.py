@@ -4,10 +4,12 @@ from typing import Optional
 Actions v1 - click, type, press
 """
 
+import asyncio
 import time
 
 from .browser import AsyncSentienceBrowser, SentienceBrowser
 from .browser_evaluator import BrowserEvaluator
+from .cursor_policy import CursorPolicy, build_human_cursor_path
 from .models import ActionResult, BBox, Snapshot
 from .sentience_methods import SentienceMethod
 from .snapshot import snapshot, snapshot_async
@@ -18,6 +20,7 @@ def click(  # noqa: C901
     element_id: int,
     use_mouse: bool = True,
     take_snapshot: bool = False,
+    cursor_policy: CursorPolicy | None = None,
 ) -> ActionResult:
     """
     Click an element by ID using hybrid approach (mouse simulation by default)
@@ -37,6 +40,7 @@ def click(  # noqa: C901
 
     start_time = time.time()
     url_before = browser.page.url
+    cursor_meta: dict | None = None
 
     if use_mouse:
         # Hybrid approach: Get element bbox from snapshot, calculate center, use mouse.click()
@@ -52,9 +56,49 @@ def click(  # noqa: C901
                 # Calculate center of element bbox
                 center_x = element.bbox.x + element.bbox.width / 2
                 center_y = element.bbox.y + element.bbox.height / 2
-                # Use Playwright's native mouse click for realistic simulation
+                # Optional: human-like cursor movement (opt-in)
                 try:
-                    browser.page.mouse.click(center_x, center_y)
+                    if cursor_policy is not None and cursor_policy.mode == "human":
+                        # Best-effort cursor state on browser instance
+                        pos = getattr(browser, "_sentience_cursor_pos", None)
+                        if not isinstance(pos, tuple) or len(pos) != 2:
+                            try:
+                                vp = browser.page.viewport_size or {}
+                                pos = (
+                                    float(vp.get("width", 0)) / 2.0,
+                                    float(vp.get("height", 0)) / 2.0,
+                                )
+                            except Exception:
+                                pos = (0.0, 0.0)
+
+                        cursor_meta = build_human_cursor_path(
+                            start=(float(pos[0]), float(pos[1])),
+                            target=(float(center_x), float(center_y)),
+                            policy=cursor_policy,
+                        )
+                        pts = cursor_meta.get("path", [])
+                        steps = int(cursor_meta.get("steps") or max(1, len(pts)))
+                        duration_ms = int(cursor_meta.get("duration_ms") or 0)
+                        per_step_s = (
+                            (duration_ms / max(1, len(pts))) / 1000.0 if duration_ms > 0 else 0.0
+                        )
+                        for p in pts:
+                            browser.page.mouse.move(float(p["x"]), float(p["y"]))
+                            if per_step_s > 0:
+                                time.sleep(per_step_s)
+                        pause_ms = int(cursor_meta.get("pause_before_click_ms") or 0)
+                        if pause_ms > 0:
+                            time.sleep(pause_ms / 1000.0)
+                        browser.page.mouse.click(center_x, center_y)
+                        setattr(
+                            browser, "_sentience_cursor_pos", (float(center_x), float(center_y))
+                        )
+                    else:
+                        # Default behavior (no regression)
+                        browser.page.mouse.click(center_x, center_y)
+                        setattr(
+                            browser, "_sentience_cursor_pos", (float(center_x), float(center_y))
+                        )
                     success = True
                 except Exception:
                     # If navigation happens, mouse.click might fail, but that's OK
@@ -122,6 +166,7 @@ def click(  # noqa: C901
         outcome=outcome,
         url_changed=url_changed,
         snapshot_after=snapshot_after,
+        cursor=cursor_meta,
         error=(
             None
             if success
@@ -414,6 +459,7 @@ def click_rect(
     highlight: bool = True,
     highlight_duration: float = 2.0,
     take_snapshot: bool = False,
+    cursor_policy: CursorPolicy | None = None,
 ) -> ActionResult:
     """
     Click at the center of a rectangle using Playwright's native mouse simulation.
@@ -469,6 +515,7 @@ def click_rect(
     # Calculate center of rectangle
     center_x = x + w / 2
     center_y = y + h / 2
+    cursor_meta: dict | None = None
 
     # Show highlight before clicking (if enabled)
     if highlight:
@@ -479,7 +526,35 @@ def click_rect(
     # Use Playwright's native mouse click for realistic simulation
     # This triggers hover, focus, mousedown, mouseup sequences
     try:
+        if cursor_policy is not None and cursor_policy.mode == "human":
+            pos = getattr(browser, "_sentience_cursor_pos", None)
+            if not isinstance(pos, tuple) or len(pos) != 2:
+                try:
+                    vp = browser.page.viewport_size or {}
+                    pos = (float(vp.get("width", 0)) / 2.0, float(vp.get("height", 0)) / 2.0)
+                except Exception:
+                    pos = (0.0, 0.0)
+
+            cursor_meta = build_human_cursor_path(
+                start=(float(pos[0]), float(pos[1])),
+                target=(float(center_x), float(center_y)),
+                policy=cursor_policy,
+            )
+            pts = cursor_meta.get("path", [])
+            duration_ms_move = int(cursor_meta.get("duration_ms") or 0)
+            per_step_s = (
+                (duration_ms_move / max(1, len(pts))) / 1000.0 if duration_ms_move > 0 else 0.0
+            )
+            for p in pts:
+                browser.page.mouse.move(float(p["x"]), float(p["y"]))
+                if per_step_s > 0:
+                    time.sleep(per_step_s)
+            pause_ms = int(cursor_meta.get("pause_before_click_ms") or 0)
+            if pause_ms > 0:
+                time.sleep(pause_ms / 1000.0)
+
         browser.page.mouse.click(center_x, center_y)
+        setattr(browser, "_sentience_cursor_pos", (float(center_x), float(center_y)))
         success = True
     except Exception as e:
         success = False
@@ -512,6 +587,7 @@ def click_rect(
         outcome=outcome,
         url_changed=url_changed,
         snapshot_after=snapshot_after,
+        cursor=cursor_meta,
         error=(
             None
             if success
@@ -531,6 +607,7 @@ async def click_async(
     element_id: int,
     use_mouse: bool = True,
     take_snapshot: bool = False,
+    cursor_policy: CursorPolicy | None = None,
 ) -> ActionResult:
     """
     Click an element by ID using hybrid approach (async)
@@ -549,6 +626,7 @@ async def click_async(
 
     start_time = time.time()
     url_before = browser.page.url
+    cursor_meta: dict | None = None
 
     if use_mouse:
         try:
@@ -563,7 +641,44 @@ async def click_async(
                 center_x = element.bbox.x + element.bbox.width / 2
                 center_y = element.bbox.y + element.bbox.height / 2
                 try:
-                    await browser.page.mouse.click(center_x, center_y)
+                    if cursor_policy is not None and cursor_policy.mode == "human":
+                        pos = getattr(browser, "_sentience_cursor_pos", None)
+                        if not isinstance(pos, tuple) or len(pos) != 2:
+                            try:
+                                vp = browser.page.viewport_size or {}
+                                pos = (
+                                    float(vp.get("width", 0)) / 2.0,
+                                    float(vp.get("height", 0)) / 2.0,
+                                )
+                            except Exception:
+                                pos = (0.0, 0.0)
+
+                        cursor_meta = build_human_cursor_path(
+                            start=(float(pos[0]), float(pos[1])),
+                            target=(float(center_x), float(center_y)),
+                            policy=cursor_policy,
+                        )
+                        pts = cursor_meta.get("path", [])
+                        duration_ms = int(cursor_meta.get("duration_ms") or 0)
+                        per_step_s = (
+                            (duration_ms / max(1, len(pts))) / 1000.0 if duration_ms > 0 else 0.0
+                        )
+                        for p in pts:
+                            await browser.page.mouse.move(float(p["x"]), float(p["y"]))
+                            if per_step_s > 0:
+                                await asyncio.sleep(per_step_s)
+                        pause_ms = int(cursor_meta.get("pause_before_click_ms") or 0)
+                        if pause_ms > 0:
+                            await asyncio.sleep(pause_ms / 1000.0)
+                        await browser.page.mouse.click(center_x, center_y)
+                        setattr(
+                            browser, "_sentience_cursor_pos", (float(center_x), float(center_y))
+                        )
+                    else:
+                        await browser.page.mouse.click(center_x, center_y)
+                        setattr(
+                            browser, "_sentience_cursor_pos", (float(center_x), float(center_y))
+                        )
                     success = True
                 except Exception:
                     success = True
@@ -640,6 +755,7 @@ async def click_async(
         outcome=outcome,
         url_changed=url_changed,
         snapshot_after=snapshot_after,
+        cursor=cursor_meta,
         error=(
             None
             if success
@@ -922,6 +1038,7 @@ async def click_rect_async(
     highlight: bool = True,
     highlight_duration: float = 2.0,
     take_snapshot: bool = False,
+    cursor_policy: CursorPolicy | None = None,
 ) -> ActionResult:
     """
     Click at the center of a rectangle (async)
@@ -968,6 +1085,7 @@ async def click_rect_async(
     # Calculate center of rectangle
     center_x = x + w / 2
     center_y = y + h / 2
+    cursor_meta: dict | None = None
 
     # Show highlight before clicking
     if highlight:
@@ -976,7 +1094,35 @@ async def click_rect_async(
 
     # Use Playwright's native mouse click
     try:
+        if cursor_policy is not None and cursor_policy.mode == "human":
+            pos = getattr(browser, "_sentience_cursor_pos", None)
+            if not isinstance(pos, tuple) or len(pos) != 2:
+                try:
+                    vp = browser.page.viewport_size or {}
+                    pos = (float(vp.get("width", 0)) / 2.0, float(vp.get("height", 0)) / 2.0)
+                except Exception:
+                    pos = (0.0, 0.0)
+
+            cursor_meta = build_human_cursor_path(
+                start=(float(pos[0]), float(pos[1])),
+                target=(float(center_x), float(center_y)),
+                policy=cursor_policy,
+            )
+            pts = cursor_meta.get("path", [])
+            duration_ms_move = int(cursor_meta.get("duration_ms") or 0)
+            per_step_s = (
+                (duration_ms_move / max(1, len(pts))) / 1000.0 if duration_ms_move > 0 else 0.0
+            )
+            for p in pts:
+                await browser.page.mouse.move(float(p["x"]), float(p["y"]))
+                if per_step_s > 0:
+                    await asyncio.sleep(per_step_s)
+            pause_ms = int(cursor_meta.get("pause_before_click_ms") or 0)
+            if pause_ms > 0:
+                await asyncio.sleep(pause_ms / 1000.0)
+
         await browser.page.mouse.click(center_x, center_y)
+        setattr(browser, "_sentience_cursor_pos", (float(center_x), float(center_y)))
         success = True
     except Exception as e:
         success = False
@@ -1009,6 +1155,7 @@ async def click_rect_async(
         outcome=outcome,
         url_changed=url_changed,
         snapshot_after=snapshot_after,
+        cursor=cursor_meta,
         error=(
             None
             if success

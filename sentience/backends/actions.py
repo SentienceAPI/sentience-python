@@ -21,6 +21,7 @@ import asyncio
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
+from ..cursor_policy import CursorPolicy, build_human_cursor_path
 from ..models import ActionResult, BBox, Snapshot
 
 if TYPE_CHECKING:
@@ -33,6 +34,7 @@ async def click(
     button: Literal["left", "right", "middle"] = "left",
     click_count: int = 1,
     move_first: bool = True,
+    cursor_policy: CursorPolicy | None = None,
 ) -> ActionResult:
     """
     Click at coordinates using the backend.
@@ -61,21 +63,47 @@ async def click(
 
     # Resolve coordinates
     x, y = _resolve_coordinates(target)
+    cursor_meta: dict | None = None
 
     try:
         # Optional mouse move for hover effects
         if move_first:
-            await backend.mouse_move(x, y)
-            await asyncio.sleep(0.02)  # Brief pause for hover
+            if cursor_policy is not None and cursor_policy.mode == "human":
+                pos = getattr(backend, "_sentience_cursor_pos", None)
+                if not isinstance(pos, tuple) or len(pos) != 2:
+                    pos = (float(x), float(y))
+
+                cursor_meta = build_human_cursor_path(
+                    start=(float(pos[0]), float(pos[1])),
+                    target=(float(x), float(y)),
+                    policy=cursor_policy,
+                )
+                pts = cursor_meta.get("path", [])
+                duration_ms_move = int(cursor_meta.get("duration_ms") or 0)
+                per_step_s = (
+                    (duration_ms_move / max(1, len(pts))) / 1000.0 if duration_ms_move > 0 else 0.0
+                )
+                for p in pts:
+                    await backend.mouse_move(float(p["x"]), float(p["y"]))
+                    if per_step_s > 0:
+                        await asyncio.sleep(per_step_s)
+                pause_ms = int(cursor_meta.get("pause_before_click_ms") or 0)
+                if pause_ms > 0:
+                    await asyncio.sleep(pause_ms / 1000.0)
+            else:
+                await backend.mouse_move(x, y)
+                await asyncio.sleep(0.02)  # Brief pause for hover
 
         # Perform click
         await backend.mouse_click(x, y, button=button, click_count=click_count)
+        setattr(backend, "_sentience_cursor_pos", (float(x), float(y)))
 
         duration_ms = int((time.time() - start_time) * 1000)
         return ActionResult(
             success=True,
             duration_ms=duration_ms,
             outcome="dom_updated",
+            cursor=cursor_meta,
         )
     except Exception as e:
         duration_ms = int((time.time() - start_time) * 1000)
@@ -84,6 +112,7 @@ async def click(
             duration_ms=duration_ms,
             outcome="error",
             error={"code": "click_failed", "reason": str(e)},
+            cursor=cursor_meta,
         )
 
 
