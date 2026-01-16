@@ -593,6 +593,8 @@ class ActionResult(BaseModel):
     url_changed: bool | None = None
     snapshot_after: Snapshot | None = None
     error: dict | None = None
+    # Optional action metadata (e.g., human-like cursor movement path)
+    cursor: dict[str, Any] | None = None
 
 
 class WaitResult(BaseModel):
@@ -675,6 +677,8 @@ class AgentActionResult(BaseModel):
     url_changed: bool | None = None
     error: str | None = None
     message: str | None = None  # For FINISH action
+    # Optional: action metadata (e.g., human-like cursor movement path)
+    cursor: dict[str, Any] | None = None
 
     def __getitem__(self, key):
         """

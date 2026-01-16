@@ -355,6 +355,7 @@ class SentienceAgent(BaseAgent):
                     url_changed=result_dict.get("url_changed"),
                     error=result_dict.get("error"),
                     message=result_dict.get("message"),
+                    cursor=result_dict.get("cursor"),
                 )
 
                 # Emit action execution trace event if tracer is enabled
@@ -391,6 +392,7 @@ class SentienceAgent(BaseAgent):
                             "post_url": post_url,
                             "elements": elements_data,  # Add element data for overlay
                             "target_element_id": result.element_id,  # Highlight target in red
+                            "cursor": result.cursor,
                         },
                         step_id=step_id,
                     )
@@ -445,6 +447,8 @@ class SentienceAgent(BaseAgent):
                         ),
                         "duration_ms": duration_ms,
                     }
+                    if result.cursor is not None:
+                        exec_data["cursor"] = result.cursor
 
                     # Add optional exec fields
                     if result.element_id is not None:

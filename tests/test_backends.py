@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from sentience import CursorPolicy
 from sentience.backends import (
     BrowserBackend,
     BrowserUseAdapter,
@@ -573,6 +574,30 @@ class TestBackendAgnosticActions:
             if c[0] == "Input.dispatchMouseEvent" and c[1]["type"] == "mousePressed"
         ]
         assert press_events[0][1]["clickCount"] == 2
+
+    @pytest.mark.asyncio
+    async def test_click_human_cursor_policy(
+        self, backend: CDPBackendV0, transport: MockCDPTransport
+    ) -> None:
+        """Opt-in: human-like cursor movement should emit multiple mouseMoved events and return cursor metadata."""
+        policy = CursorPolicy(
+            mode="human",
+            steps=6,
+            duration_ms=0,
+            jitter_px=0.0,
+            overshoot_px=0.0,
+            pause_before_click_ms=0,
+            seed=123,
+        )
+        result = await click(backend, (100, 200), cursor_policy=policy)
+
+        assert result.success is True
+        assert result.cursor is not None
+        assert result.cursor.get("mode") == "human"
+
+        mouse_events = [c for c in transport.calls if c[0] == "Input.dispatchMouseEvent"]
+        # Expect more than the default (move, press, release)
+        assert len(mouse_events) > 3
 
     @pytest.mark.asyncio
     async def test_type_text_simple(
