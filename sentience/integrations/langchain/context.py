@@ -16,4 +16,3 @@ class SentienceLangChainContext:
 
     browser: AsyncSentienceBrowser
     tracer: Tracer | None = None
-

@@ -100,7 +100,10 @@ class SentienceLangChainCore:
                 if success is not None:
                     exec_data["success"] = success
 
-                verify_data = {"passed": bool(success) if success is not None else True, "signals": {}}
+                verify_data = {
+                    "passed": bool(success) if success is not None else True,
+                    "signals": {},
+                }
 
                 step_end_data = TraceEventBuilder.build_step_end_event(
                     step_id=step_id,
@@ -123,7 +126,9 @@ class SentienceLangChainCore:
             raise
 
     # ===== Observe =====
-    async def snapshot_state(self, limit: int = 50, include_screenshot: bool = False) -> BrowserState:
+    async def snapshot_state(
+        self, limit: int = 50, include_screenshot: bool = False
+    ) -> BrowserState:
         async def _run():
             opts = SnapshotOptions(limit=limit, screenshot=include_screenshot)
             snap = await snapshot_async(self.ctx.browser, opts)
@@ -153,7 +158,9 @@ class SentienceLangChainCore:
         enhance_markdown: bool = True,
     ) -> ReadResult:
         async def _run():
-            return await read_async(self.ctx.browser, output_format=format, enhance_markdown=enhance_markdown)
+            return await read_async(
+                self.ctx.browser, output_format=format, enhance_markdown=enhance_markdown
+            )
 
         return await self._trace(
             "read_page",
@@ -178,7 +185,9 @@ class SentienceLangChainCore:
         )
 
     async def press_key(self, key: str):
-        return await self._trace("press_key", lambda: press_async(self.ctx.browser, key), {"key": key})
+        return await self._trace(
+            "press_key", lambda: press_async(self.ctx.browser, key), {"key": key}
+        )
 
     async def scroll_to(
         self,
@@ -221,7 +230,14 @@ class SentienceLangChainCore:
         return await self._trace(
             "click_rect",
             _run,
-            {"x": x, "y": y, "width": width, "height": height, "button": button, "click_count": click_count},
+            {
+                "x": x,
+                "y": y,
+                "width": width,
+                "height": height,
+                "button": button,
+                "click_count": click_count,
+            },
         )
 
     async def find_text_rect(
@@ -243,7 +259,12 @@ class SentienceLangChainCore:
         return await self._trace(
             "find_text_rect",
             _run,
-            {"query": text, "case_sensitive": case_sensitive, "whole_word": whole_word, "max_results": max_results},
+            {
+                "query": text,
+                "case_sensitive": case_sensitive,
+                "whole_word": whole_word,
+                "max_results": max_results,
+            },
         )
 
     # ===== Verify / guard =====
@@ -272,7 +293,9 @@ class SentienceLangChainCore:
         async def _run():
             result = await read_async(self.ctx.browser, output_format=format, enhance_markdown=True)
             if result.status != "success":
-                return AssertionResult(passed=False, reason=f"read failed: {result.error}", details={})
+                return AssertionResult(
+                    passed=False, reason=f"read failed: {result.error}", details={}
+                )
 
             haystack = result.content if case_sensitive else result.content.lower()
             needle = text if case_sensitive else text.lower()
@@ -301,4 +324,3 @@ class SentienceLangChainCore:
                 return last
             await asyncio.sleep(poll_s)
         return last or AssertionResult(passed=False, reason="No attempts executed", details={})
-

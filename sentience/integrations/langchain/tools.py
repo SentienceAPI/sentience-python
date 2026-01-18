@@ -26,11 +26,15 @@ def build_sentience_langchain_tools(ctx: SentienceLangChainContext) -> list[Any]
     # ---- Schemas ----
     class SnapshotStateArgs(BaseModel):
         limit: int = Field(50, ge=1, le=500, description="Max elements to return (default 50)")
-        include_screenshot: bool = Field(False, description="Include screenshot in snapshot (default false)")
+        include_screenshot: bool = Field(
+            False, description="Include screenshot in snapshot (default false)"
+        )
 
     class ReadPageArgs(BaseModel):
         format: Literal["raw", "text", "markdown"] = Field("text", description="Output format")
-        enhance_markdown: bool = Field(True, description="Enhance markdown conversion (default true)")
+        enhance_markdown: bool = Field(
+            True, description="Enhance markdown conversion (default true)"
+        )
 
     class ClickArgs(BaseModel):
         element_id: int = Field(..., description="Sentience element id from snapshot_state()")
@@ -44,8 +48,12 @@ def build_sentience_langchain_tools(ctx: SentienceLangChainContext) -> list[Any]
 
     class ScrollToArgs(BaseModel):
         element_id: int = Field(..., description="Sentience element id from snapshot_state()")
-        behavior: Literal["smooth", "instant", "auto"] = Field("smooth", description="Scroll behavior")
-        block: Literal["start", "center", "end", "nearest"] = Field("center", description="Vertical alignment")
+        behavior: Literal["smooth", "instant", "auto"] = Field(
+            "smooth", description="Scroll behavior"
+        )
+        block: Literal["start", "center", "end", "nearest"] = Field(
+            "center", description="Vertical alignment"
+        )
 
     class NavigateArgs(BaseModel):
         url: str = Field(..., description="URL to navigate to")
@@ -79,7 +87,9 @@ def build_sentience_langchain_tools(ctx: SentienceLangChainContext) -> list[Any]
 
     # ---- Sync wrappers (explicitly unsupported) ----
     def _sync_unsupported(*args, **kwargs):
-        raise RuntimeError("Sentience LangChain tools are async-only. Use an async LangChain agent/runner.")
+        raise RuntimeError(
+            "Sentience LangChain tools are async-only. Use an async LangChain agent/runner."
+        )
 
     # ---- Tools ----
     return [
@@ -168,4 +178,3 @@ def build_sentience_langchain_tools(ctx: SentienceLangChainContext) -> list[Any]
             coroutine=lambda **kw: core.assert_eventually_url_matches(**kw),
         ),
     ]
-

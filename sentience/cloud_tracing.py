@@ -203,7 +203,9 @@ class CloudTraceSink(TraceSink):
         self._generate_index()
         return True
 
-    def _close_and_upload_background(self, on_progress: Callable[[int, int], None] | None = None) -> None:
+    def _close_and_upload_background(
+        self, on_progress: Callable[[int, int], None] | None = None
+    ) -> None:
         """
         Background worker for non-blocking close.
 

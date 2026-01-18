@@ -16,7 +16,10 @@ from __future__ import annotations
 import asyncio
 
 from sentience import AsyncSentienceBrowser
-from sentience.integrations.langchain import SentienceLangChainContext, build_sentience_langchain_tools
+from sentience.integrations.langchain import (
+    SentienceLangChainContext,
+    build_sentience_langchain_tools,
+)
 
 
 async def main() -> None:
@@ -36,4 +39,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -86,7 +86,9 @@ async def test_core_snapshot_state_summarizes(monkeypatch):
             ],
         )
 
-    monkeypatch.setattr("sentience.integrations.langchain.core.snapshot_async", _fake_snapshot_async)
+    monkeypatch.setattr(
+        "sentience.integrations.langchain.core.snapshot_async", _fake_snapshot_async
+    )
 
     ctx = SentienceLangChainContext(browser=_FakeAsyncBrowser())  # type: ignore[arg-type]
     core = SentienceLangChainCore(ctx)
@@ -95,4 +97,3 @@ async def test_core_snapshot_state_summarizes(monkeypatch):
     assert state.url == "https://example.com/"
     assert len(state.elements) == 1
     assert state.elements[0].id == 1
-
